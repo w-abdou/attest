@@ -32,6 +32,9 @@ public class Document {
     @Column(nullable = false)
     private String documentHash;
 
+    @Column(nullable = true)
+    private Long rootDocumentId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private DocumentStatus status = DocumentStatus.DRAFT;

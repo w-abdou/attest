@@ -2,7 +2,7 @@ package com.attest.attest.controller;
 
 import com.attest.attest.model.Document;
 import com.attest.attest.service.DocumentService;
-import jakarta.validation.constraints.NotNull;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -23,13 +23,16 @@ public class DocumentController {
     @PostMapping
     public ResponseEntity<?> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("ownerId") @NotNull Long ownerId
+            HttpServletRequest request
     ) throws IOException {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "File must not be empty"));
         }
 
-        Document doc = documentService.upload(file, ownerId);
+        Long requesterId = (Long) request.getAttribute("authenticatedUserId");
+        String requesterRole = (String) request.getAttribute("authenticatedRole");
+
+        Document doc = documentService.upload(file, requesterId, requesterRole);
 
         return ResponseEntity.ok(Map.of(
                 "id", doc.getId(),
@@ -43,9 +46,12 @@ public class DocumentController {
     @PostMapping("/{id}/verify")
     public ResponseEntity<?> verify(
             @PathVariable Long id,
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request
     ) throws IOException {
-        DocumentService.VerifyResult result = documentService.verify(id, file);
+        Long requesterId = (Long) request.getAttribute("authenticatedUserId");
+        String requesterRole = (String) request.getAttribute("authenticatedRole");
+        DocumentService.VerifyResult result = documentService.verify(id, file, requesterId, requesterRole);
 
         return ResponseEntity.ok(Map.of(
                 "documentId", result.documentId(),
@@ -58,13 +64,16 @@ public class DocumentController {
     public ResponseEntity<?> amend(
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("ownerId") @NotNull Long ownerId
+            HttpServletRequest request
     ) throws IOException {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "File must not be empty"));
         }
 
-        Document newVersion = documentService.amend(id, file, ownerId);
+        Long requesterId = (Long) request.getAttribute("authenticatedUserId");
+        String requesterRole = (String) request.getAttribute("authenticatedRole");
+
+        Document newVersion = documentService.amend(id, file, requesterId, requesterRole);
 
         return ResponseEntity.ok(Map.of(
                 "id", newVersion.getId(),

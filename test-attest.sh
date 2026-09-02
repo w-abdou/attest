@@ -11,7 +11,7 @@ FAIL_COUNT=0
 TEST_DIR=$(mktemp -d)
 cd "$TEST_DIR" || exit 1
 
-echo "This is the original test document." > original.pdf
+printf '%%PDF-1.4\nThis is the original test document.\n' > original.pdf
 cp original.pdf tampered.pdf
 echo "extra byte" >> tampered.pdf
 touch empty.pdf
@@ -61,6 +61,7 @@ LOGIN_OK=$(curl -s -X POST $BASE_URL/api/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$UNIQUE_EMAIL\",\"password\":\"Testpass123!\"}")
 check "Login with correct password succeeds" "$LOGIN_OK" "\"email\":\"$UNIQUE_EMAIL\""
+TOKEN=$(echo "$LOGIN_OK" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
 LOGIN_BAD=$(curl -s -X POST $BASE_URL/api/auth/login \
   -H "Content-Type: application/json" \
@@ -73,25 +74,25 @@ echo "2. DOCUMENTS — Upload, Verify, Tamper detection"
 echo "=================================================="
 
 UPLOAD=$(curl -s -X POST $BASE_URL/api/documents \
-  -F "file=@original.pdf" -F "ownerId=$USER_ID")
+  -H "Authorization: Bearer $TOKEN" -F "file=@original.pdf" -F "ownerId=$USER_ID")
 check "Upload succeeds" "$UPLOAD" "\"status\":\"DRAFT\""
 DOC_ID=$(extract_id "$UPLOAD")
 echo "   (uploaded document id: $DOC_ID)"
 
 UPLOAD_EMPTY=$(curl -s -X POST $BASE_URL/api/documents \
-  -F "file=@empty.pdf" -F "ownerId=$USER_ID")
+  -H "Authorization: Bearer $TOKEN" -F "file=@empty.pdf" -F "ownerId=$USER_ID")
 check "Empty file upload rejected" "$UPLOAD_EMPTY" "must not be empty"
 
 VERIFY_ORIGINAL=$(curl -s -X POST $BASE_URL/api/documents/$DOC_ID/verify \
-  -F "file=@original.pdf")
+  -H "Authorization: Bearer $TOKEN" -F "file=@original.pdf")
 check "Verify original file matches (Hash verified)" "$VERIFY_ORIGINAL" "\"verified\":true"
 
 VERIFY_TAMPERED=$(curl -s -X POST $BASE_URL/api/documents/$DOC_ID/verify \
-  -F "file=@tampered.pdf")
+  -H "Authorization: Bearer $TOKEN" -F "file=@tampered.pdf")
 check "Verify tampered file fails (Integrity verification failed)" "$VERIFY_TAMPERED" "\"verified\":false"
 
 VERIFY_MISSING=$(curl -s -X POST $BASE_URL/api/documents/999999/verify \
-  -F "file=@original.pdf")
+  -H "Authorization: Bearer $TOKEN" -F "file=@original.pdf")
 check "Verify against non-existent document returns 404 message" "$VERIFY_MISSING" "Document not found"
 
 echo ""
@@ -100,13 +101,13 @@ echo "3. VERSIONING — Amend creates a new immutable version"
 echo "=================================================="
 
 AMEND=$(curl -s -X POST $BASE_URL/api/documents/$DOC_ID/amend \
-  -F "file=@tampered.pdf" -F "ownerId=$USER_ID")
+  -H "Authorization: Bearer $TOKEN" -F "file=@tampered.pdf" -F "ownerId=$USER_ID")
 check "Amend creates version 2" "$AMEND" "\"version\":2"
 NEW_DOC_ID=$(extract_id "$AMEND")
 echo "   (new version document id: $NEW_DOC_ID)"
 
 VERIFY_ORIGINAL_AGAIN=$(curl -s -X POST $BASE_URL/api/documents/$DOC_ID/verify \
-  -F "file=@original.pdf")
+  -H "Authorization: Bearer $TOKEN" -F "file=@original.pdf")
 check "Original version still verifies correctly after amendment" "$VERIFY_ORIGINAL_AGAIN" "\"verified\":true"
 
 echo ""

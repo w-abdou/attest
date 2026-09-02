@@ -7,6 +7,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -36,6 +38,14 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler({MaxUploadSizeExceededException.class, HttpMessageNotReadableException.class})
+    public ResponseEntity<?> handleMalformedRequest(Exception ex) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", "Malformed or oversized request"
+        ));
+    }
+
     @ExceptionHandler(DocumentNotFoundException.class)
     public ResponseEntity<?> handleNotFound(DocumentNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
@@ -60,6 +70,14 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<?> handleForbidden(ForbiddenException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneric(Exception ex) {
         return ResponseEntity.internalServerError().body(Map.of(
@@ -67,4 +85,14 @@ public class GlobalExceptionHandler {
                 "error", "An unexpected error occurred"
         ));
     }
+
+    @ExceptionHandler(InvalidFileException.class)
+    public ResponseEntity<?> handleInvalidFile(InvalidFileException ex) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
+
 }

@@ -3,6 +3,7 @@ package com.attest.attest.controller;
 import com.attest.attest.dto.LoginRequest;
 import com.attest.attest.dto.RegisterRequest;
 import com.attest.attest.model.User;
+import com.attest.attest.service.JwtService;
 import com.attest.attest.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +16,11 @@ import java.util.Map;
 public class AuthController {
 
     private final UserService userService;
+    private final JwtService jwtService;
 
-    public AuthController(UserService userService) {
+    public AuthController(UserService userService, JwtService jwtService) {
         this.userService = userService;
+        this.jwtService = jwtService;
     }
 
     @PostMapping("/register")
@@ -29,6 +32,12 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         User user = userService.login(request);
-        return ResponseEntity.ok(Map.of("id", user.getId(), "email", user.getEmail(), "role", user.getRole()));
+        String token = jwtService.generateToken(user.getId(), user.getRole().name());
+        return ResponseEntity.ok(Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "role", user.getRole(),
+                "token", token
+        ));
     }
 }

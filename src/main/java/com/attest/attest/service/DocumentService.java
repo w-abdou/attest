@@ -1,6 +1,8 @@
 package com.attest.attest.service;
 
 import com.attest.attest.exception.DocumentNotFoundException;
+import com.attest.attest.exception.ForbiddenException;
+import com.attest.attest.exception.InvalidFileException;
 import com.attest.attest.model.AuditLog;
 import com.attest.attest.model.Document;
 import com.attest.attest.repository.AuditLogRepository;
@@ -10,9 +12,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 @Service
 public class DocumentService {
+
+    private static final Set<String> UPLOAD_ROLES = Set.of("ADMIN", "SIGNER");
+    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("application/pdf");
+    private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final DocumentRepository documentRepository;
     private final DocumentStorageService storageService;
@@ -26,7 +34,33 @@ public class DocumentService {
         this.auditLogRepository = auditLogRepository;
     }
 
-    public Document upload(MultipartFile file, Long ownerId) throws IOException {
+    private void validateFile(MultipartFile file) {
+        if (file.isEmpty() || file.getSize() == 0) {
+            throw new InvalidFileException("File must not be empty");
+        }
+        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
+            throw new InvalidFileException("File exceeds maximum size of 10MB");
+        }
+        if (!ALLOWED_CONTENT_TYPES.contains(file.getContentType()) || !hasPdfSignature(file)) {
+            throw new InvalidFileException("Only valid PDF files are accepted");
+        }
+    }
+
+    private boolean hasPdfSignature(MultipartFile file) {
+        try {
+            byte[] prefix = file.getInputStream().readNBytes(5);
+            return new String(prefix, StandardCharsets.US_ASCII).equals("%PDF-");
+        } catch (IOException ex) {
+            throw new InvalidFileException("Unable to inspect uploaded file");
+        }
+    }
+
+    public Document upload(MultipartFile file, Long requesterId, String requesterRole) throws IOException {
+        if (!UPLOAD_ROLES.contains(requesterRole)) {
+            throw new ForbiddenException("Role " + requesterRole + " is not permitted to upload documents");
+        }
+        validateFile(file);
+
         byte[] fileBytes = file.getBytes();
         String hash = hashService.sha256(fileBytes);
         String reference = storageService.store(file);
@@ -36,32 +70,42 @@ public class DocumentService {
         doc.setContentType(file.getContentType());
         doc.setStorageReference(reference);
         doc.setDocumentHash(hash);
-        doc.setOwnerId(ownerId);
+        doc.setOwnerId(requesterId);
         documentRepository.save(doc);
 
         doc.setRootDocumentId(doc.getId());
         documentRepository.save(doc);
 
-        logAction(doc.getId(), "UPLOADED", ownerId, "version " + doc.getVersion());
+        logAction(doc.getId(), "UPLOADED", requesterId, "version " + doc.getVersion());
 
         return doc;
     }
 
-    public VerifyResult verify(Long id, MultipartFile file) throws IOException {
+    public VerifyResult verify(Long id, MultipartFile file, Long requesterId, String requesterRole) throws IOException {
         Document doc = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
+
+        authorizeDocumentAccess(doc, requesterId, requesterRole);
+        validateFile(file);
 
         String uploadedHash = hashService.sha256(file.getBytes());
         boolean matches = uploadedHash.equals(doc.getDocumentHash());
 
-        logAction(doc.getId(), matches ? "VERIFY_SUCCESS" : "VERIFY_FAILED", 0L, null);
+        logAction(doc.getId(), matches ? "VERIFY_SUCCESS" : "VERIFY_FAILED", requesterId, null);
 
         return new VerifyResult(doc.getId(), matches);
     }
 
-    public Document amend(Long id, MultipartFile file, Long ownerId) throws IOException {
+    public Document amend(Long id, MultipartFile file, Long requesterId, String requesterRole) throws IOException {
+        if (!UPLOAD_ROLES.contains(requesterRole)) {
+            throw new ForbiddenException("Role " + requesterRole + " is not permitted to amend documents");
+        }
+        validateFile(file);
+
         Document original = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
+
+        authorizeDocumentAccess(original, requesterId, requesterRole);
 
         Long rootId = original.getRootDocumentId();
         Integer maxVersion = documentRepository.findAll().stream()
@@ -79,14 +123,22 @@ public class DocumentService {
         newVersion.setContentType(file.getContentType());
         newVersion.setStorageReference(reference);
         newVersion.setDocumentHash(hash);
-        newVersion.setOwnerId(ownerId);
+        newVersion.setOwnerId(original.getOwnerId());
         newVersion.setVersion(maxVersion + 1);
         newVersion.setRootDocumentId(rootId);
         documentRepository.save(newVersion);
 
-        logAction(newVersion.getId(), "AMENDED", ownerId, "new version " + newVersion.getVersion() + " of root " + rootId);
+        logAction(newVersion.getId(), "AMENDED", requesterId, "new version " + newVersion.getVersion() + " of root " + rootId);
 
         return newVersion;
+    }
+
+    private void authorizeDocumentAccess(Document document, Long requesterId, String requesterRole) {
+        boolean isOwner = document.getOwnerId().equals(requesterId);
+        boolean isAdmin = "ADMIN".equals(requesterRole);
+        if (!isOwner && !isAdmin) {
+            throw new ForbiddenException("You are not authorized to access this document");
+        }
     }
 
     private void logAction(Long documentId, String action, Long performedBy, String detail) {

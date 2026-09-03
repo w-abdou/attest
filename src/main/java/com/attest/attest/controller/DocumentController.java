@@ -24,6 +24,13 @@ public class DocumentController {
         this.documentService = documentService;
     }
 
+    @GetMapping
+    public ResponseEntity<List<DocumentResponse>> list(HttpServletRequest request) {
+        Long requesterId = (Long) request.getAttribute("authenticatedUserId");
+        List<Document> docs = documentService.listDocuments(requesterId);
+        return ResponseEntity.ok(docs.stream().map(DocumentResponse::from).toList());
+    }
+
     @PostMapping
     public ResponseEntity<DocumentResponse> upload(
             @RequestParam("file") MultipartFile file,

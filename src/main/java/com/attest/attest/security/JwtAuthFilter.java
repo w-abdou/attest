@@ -29,6 +29,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Browsers send an OPTIONS preflight before certain cross-origin requests,
+        // with no Authorization header at all — that's expected, not an attack.
+        // Spring's CORS handling (see CorsConfig) needs to see this request; if this
+        // filter rejected it first with 401, the browser would never even attempt
+        // the real request.
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         String path = request.getRequestURI();
         return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }

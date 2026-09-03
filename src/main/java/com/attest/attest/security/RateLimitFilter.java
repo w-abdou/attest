@@ -25,6 +25,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Preflight OPTIONS requests never carry credentials and shouldn't count
+        // against the rate limit — a burst of real requests could otherwise get
+        // starved by their own browser-generated preflights.
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         return LIMITED_PATHS.stream().noneMatch(request.getRequestURI()::equals);
     }
 

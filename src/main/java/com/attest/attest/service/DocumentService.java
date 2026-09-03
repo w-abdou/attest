@@ -13,7 +13,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -80,6 +83,27 @@ public class DocumentService {
         logAction(doc.getId(), "UPLOADED", requesterId, "version " + doc.getVersion());
 
         return doc;
+    }
+
+    /**
+     * Returns the documents the requester owns, one entry per document family
+     * (the latest version only — amending a document doesn't create a second
+     * entry here), newest first.
+     */
+    public List<Document> listDocuments(Long requesterId) {
+        List<Document> owned = documentRepository.findByOwnerId(requesterId);
+
+        Map<Long, Document> latestByRoot = new HashMap<>();
+        for (Document d : owned) {
+            Document current = latestByRoot.get(d.getRootDocumentId());
+            if (current == null || d.getVersion() > current.getVersion()) {
+                latestByRoot.put(d.getRootDocumentId(), d);
+            }
+        }
+
+        return latestByRoot.values().stream()
+                .sorted(Comparator.comparing(Document::getCreatedAt).reversed())
+                .toList();
     }
 
     public Document getDocument(Long id, Long requesterId, String requesterRole) {

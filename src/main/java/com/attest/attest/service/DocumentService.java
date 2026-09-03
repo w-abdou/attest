@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 
 @Service
@@ -81,6 +82,33 @@ public class DocumentService {
         return doc;
     }
 
+    public Document getDocument(Long id, Long requesterId, String requesterRole) {
+        Document doc = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        authorizeDocumentAccess(doc, requesterId, requesterRole);
+        return doc;
+    }
+
+    public List<Document> getVersions(Long id, Long requesterId, String requesterRole) {
+        Document doc = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        authorizeDocumentAccess(doc, requesterId, requesterRole);
+        return documentRepository.findByRootDocumentIdOrderByVersionAsc(doc.getRootDocumentId());
+    }
+
+    public List<AuditLog> getAuditTrail(Long id, Long requesterId, String requesterRole) {
+        Document doc = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        authorizeDocumentAccess(doc, requesterId, requesterRole);
+
+        List<Long> versionIds = documentRepository.findByRootDocumentIdOrderByVersionAsc(doc.getRootDocumentId())
+                .stream()
+                .map(Document::getId)
+                .toList();
+
+        return auditLogRepository.findByDocumentIdInOrderByTimestampAsc(versionIds);
+    }
+
     public VerifyResult verify(Long id, MultipartFile file, Long requesterId, String requesterRole) throws IOException {
         Document doc = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
@@ -108,8 +136,8 @@ public class DocumentService {
         authorizeDocumentAccess(original, requesterId, requesterRole);
 
         Long rootId = original.getRootDocumentId();
-        Integer maxVersion = documentRepository.findAll().stream()
-                .filter(d -> rootId.equals(d.getRootDocumentId()))
+        List<Document> existingVersions = documentRepository.findByRootDocumentIdOrderByVersionAsc(rootId);
+        Integer maxVersion = existingVersions.stream()
                 .map(Document::getVersion)
                 .max(Integer::compareTo)
                 .orElse(original.getVersion());

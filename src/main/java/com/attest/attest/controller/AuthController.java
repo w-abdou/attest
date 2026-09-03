@@ -1,15 +1,15 @@
 package com.attest.attest.controller;
 
 import com.attest.attest.dto.LoginRequest;
+import com.attest.attest.dto.LoginResponse;
 import com.attest.attest.dto.RegisterRequest;
+import com.attest.attest.dto.UserResponse;
 import com.attest.attest.model.User;
 import com.attest.attest.service.JwtService;
 import com.attest.attest.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -24,20 +24,15 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
         User user = userService.register(request);
-        return ResponseEntity.ok(Map.of("id", user.getId(), "email", user.getEmail(), "role", user.getRole()));
+        return ResponseEntity.ok(new UserResponse(user.getId(), user.getEmail(), user.getRole()));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         User user = userService.login(request);
         String token = jwtService.generateToken(user.getId(), user.getRole().name());
-        return ResponseEntity.ok(Map.of(
-                "id", user.getId(),
-                "email", user.getEmail(),
-                "role", user.getRole(),
-                "token", token
-        ));
+        return ResponseEntity.ok(new LoginResponse(user.getId(), user.getEmail(), user.getRole(), token));
     }
 }

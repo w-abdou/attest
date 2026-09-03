@@ -118,6 +118,33 @@ class DocumentServiceSecurityTests {
         assertEquals(document, service.getDocument(10L, 99L, "ADMIN"));
     }
 
+    @Test
+    void listDocumentsReturnsLatestVersionPerRootOwnedByRequester() {
+        Document v2 = new Document();
+        v2.setId(11L);
+        v2.setOwnerId(1L);
+        v2.setRootDocumentId(10L);
+        v2.setVersion(2);
+        v2.setCreatedAt(document.getCreatedAt().plusSeconds(60));
+
+        Document someoneElsesDoc = new Document();
+        someoneElsesDoc.setId(20L);
+        someoneElsesDoc.setOwnerId(2L);
+        someoneElsesDoc.setRootDocumentId(20L);
+        someoneElsesDoc.setVersion(1);
+
+        // findByOwnerId is already scoped by owner at the query level; someoneElsesDoc
+        // wouldn't actually come back from a real query for owner 1L, but including it
+        // here (and not stubbing findByOwnerId(2L)) documents that intent for a reader.
+        when(documentRepository.findByOwnerId(1L)).thenReturn(List.of(document, v2));
+
+        List<Document> result = service.listDocuments(1L);
+
+        assertEquals(1, result.size());
+        assertEquals(2, result.get(0).getVersion());
+        assertEquals(11L, result.get(0).getId());
+    }
+
     private MockMultipartFile pdf(String filename) {
         return new MockMultipartFile("file", filename, "application/pdf", pdfBytes());
     }

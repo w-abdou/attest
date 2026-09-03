@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByRootDocumentIdOrderByVersionAsc(Long rootDocumentId);
+    List<Document> findByOwnerId(Long ownerId);
 }

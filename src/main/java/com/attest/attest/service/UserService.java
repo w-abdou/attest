@@ -4,6 +4,8 @@ import com.attest.attest.dto.LoginRequest;
 import com.attest.attest.dto.RegisterRequest;
 import com.attest.attest.exception.EmailAlreadyRegisteredException;
 import com.attest.attest.exception.InvalidCredentialsException;
+import com.attest.attest.exception.InvalidRoleException;
+import com.attest.attest.exception.UserNotFoundException;
 import com.attest.attest.model.Role;
 import com.attest.attest.model.User;
 import com.attest.attest.repository.UserRepository;
@@ -36,5 +38,46 @@ public class UserService {
         return userRepository.findByEmail(request.email())
                 .filter(user -> passwordEncoder.matches(request.password(), user.getPasswordHash()))
                 .orElseThrow(InvalidCredentialsException::new);
+    }
+
+    /**
+     * Changes a user's role. Only ever called by AdminController, which has already
+     * confirmed the requester's JWT-authenticated role is ADMIN before calling this.
+     * This method itself does not re-check who is calling it.
+     */
+    public User updateRole(Long userId, String newRoleName) {
+        Role newRole;
+        try {
+            newRole = Role.valueOf(newRoleName.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidRoleException(newRoleName);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        user.setRole(newRole);
+        return userRepository.save(user);
+    }
+
+    /**
+     * Creates a single ADMIN account at startup if both an email and password are
+     * configured (see app.bootstrap.* properties) and no user with that email exists
+     * yet. This is the only way an ADMIN account can ever be created — never through
+     * a public API request. Does nothing if not configured, or if that email is
+     * already taken (so it's safe to run on every restart).
+     */
+    public void bootstrapAdminIfConfigured(String email, String rawPassword) {
+        if (email == null || email.isBlank() || rawPassword == null || rawPassword.isBlank()) {
+            return;
+        }
+        if (userRepository.findByEmail(email).isPresent()) {
+            return;
+        }
+
+        User admin = new User();
+        admin.setEmail(email);
+        admin.setPasswordHash(passwordEncoder.encode(rawPassword));
+        admin.setRole(Role.ADMIN);
+        userRepository.save(admin);
     }
 }

@@ -2,6 +2,7 @@ package com.attest.attest;
 
 import com.attest.attest.exception.ForbiddenException;
 import com.attest.attest.exception.InvalidFileException;
+import com.attest.attest.model.AuditLog;
 import com.attest.attest.model.Document;
 import com.attest.attest.repository.AuditLogRepository;
 import com.attest.attest.repository.DocumentRepository;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,7 +65,7 @@ class DocumentServiceSecurityTests {
         Document newVersion = new Document();
         newVersion.setId(11L);
         when(documentRepository.save(any(Document.class))).thenReturn(newVersion);
-        when(documentRepository.findAll()).thenReturn(java.util.List.of(document));
+        when(documentRepository.findByRootDocumentIdOrderByVersionAsc(10L)).thenReturn(List.of(document));
 
         assertDoesNotThrow(() -> service.amend(10L, pdf("document.pdf"), 99L, "ADMIN"));
     }
@@ -86,12 +88,34 @@ class DocumentServiceSecurityTests {
     @Test
     void modifiedPdfFailsIntegrityVerification() throws IOException {
         var result = service.verify(10L,
-            new MockMultipartFile("file", "document.pdf", "application/pdf", pdfWithContent("changed").getBytes()),
-            1L, "VIEWER");
+                new MockMultipartFile("file", "document.pdf", "application/pdf", pdfWithContent("changed").getBytes()),
+                1L, "VIEWER");
 
         assertFalse(result.verified());
         assertEquals("Integrity verification failed", result.resultMessage());
         verify(auditLogRepository).save(argThat(log -> log.getAction().equals("VERIFY_FAILED") && log.getPerformedBy().equals(1L)));
+    }
+
+    @Test
+    void ownerCanReadDocumentMetadataVersionsAndAudit() {
+        when(documentRepository.findByRootDocumentIdOrderByVersionAsc(10L)).thenReturn(List.of(document));
+        when(auditLogRepository.findByDocumentIdInOrderByTimestampAsc(List.of(10L))).thenReturn(List.of(new AuditLog()));
+
+        assertEquals(document, service.getDocument(10L, 1L, "VIEWER"));
+        assertEquals(1, service.getVersions(10L, 1L, "VIEWER").size());
+        assertEquals(1, service.getAuditTrail(10L, 1L, "VIEWER").size());
+    }
+
+    @Test
+    void otherUserCannotReadDocumentMetadataVersionsOrAudit() {
+        assertThrows(ForbiddenException.class, () -> service.getDocument(10L, 2L, "VIEWER"));
+        assertThrows(ForbiddenException.class, () -> service.getVersions(10L, 2L, "VIEWER"));
+        assertThrows(ForbiddenException.class, () -> service.getAuditTrail(10L, 2L, "VIEWER"));
+    }
+
+    @Test
+    void adminCanReadAnotherUsersDocumentMetadata() {
+        assertEquals(document, service.getDocument(10L, 99L, "ADMIN"));
     }
 
     private MockMultipartFile pdf(String filename) {

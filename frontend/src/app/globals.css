@@ -1,26 +1,109 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ---------------------------------------------------------------------------
+   Attest design tokens — Sui brand palette.
+   Sui blue (#4DA2FF) is only 2.65:1 against white, so it is reserved for
+   accents, focus rings and chips. Solid fills that carry white text use
+   sui-600 (#1569D6, 5.2:1) instead.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-sui-50:  #eff6ff;
+  --color-sui-100: #dcebfe;
+  --color-sui-200: #c0e6ff; /* Sui "Aqua" */
+  --color-sui-300: #93c9ff;
+  --color-sui-400: #4da2ff; /* Sui brand blue */
+  --color-sui-500: #2a8af6;
+  --color-sui-600: #1569d6; /* primary solid */
+  --color-sui-700: #1355ab;
+  --color-sui-800: #14488b;
+  --color-sui-900: #143d70;
+  --color-sui-950: #011829; /* Sui "Deep Ocean" */
+
+  --color-ink-50:  #f8fafc;
+  --color-ink-100: #f1f5f9;
+  --color-ink-200: #e5e9f0;
+  --color-ink-300: #d3dae5;
+  --color-ink-400: #9aa6b8;
+  --color-ink-500: #6b7789;
+  --color-ink-600: #4d5666;
+  --color-ink-700: #374151;
+  --color-ink-800: #1f2733;
+  --color-ink-900: #111827;
+  --color-ink-950: #0a0f16;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-rise: rise 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-toast-in: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-spin-slow: spin 0.7s linear infinite;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #ffffff;
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* A single, consistent focus ring across every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--color-sui-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Skeleton shimmer surface. */
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-ink-100) 0%,
+    var(--color-ink-200) 50%,
+    var(--color-ink-100) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Subtle grid backdrop used behind the marketing hero. */
+.hero-grid {
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(77, 162, 255, 0.16), transparent 70%),
+    linear-gradient(to right, rgba(17, 24, 39, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 24, 39, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 44px 44px, 44px 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

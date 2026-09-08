@@ -161,3 +161,20 @@ export async function signDocument(id: number): Promise<void> {
   });
   return handleNoContent(res);
 }
+
+// --- documents (across every team the caller belongs to) ---
+export async function listAllDocuments(): Promise<DocumentResponse[]> {
+  const res = await fetch(`${API_BASE_URL}/api/documents`, { headers: { ...authHeaders() } });
+  return handleResponse<DocumentResponse[]>(res);
+}
+
+// --- admin ---
+// The only way a SIGNER or ADMIN account is ever created. Backend rejects the
+// call unless the JWT itself carries the ADMIN role.
+export async function updateUserRole(userId: number, role: Role): Promise<UserResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/role`, {
+    method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ role }),
+  });
+  return handleResponse<UserResponse>(res);
+}

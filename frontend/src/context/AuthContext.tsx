@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, ReactNode } from "react";
 import * as api from "@/lib/api";
 import type { Role } from "@/lib/api";
 
@@ -18,47 +18,90 @@ interface AuthContextValue {
     logout: () => void;
 }
 
+const TOKEN_KEY = "attest_token";
+const USER_KEY = "attest_user";
+
+/* ---------------------------------------------------------------------------
+   localStorage is an external store, so it is read through useSyncExternalStore
+   rather than copied into React state by an effect. Two consequences worth
+   knowing: the parsed user is memoised against its raw string (getSnapshot has
+   to stay referentially stable or React re-renders forever), and a "storage"
+   listener keeps other tabs in sync — logging out in one tab logs out the rest.
+--------------------------------------------------------------------------- */
+
+const listeners = new Set<() => void>();
+let cachedRaw: string | null = null;
+let cachedUser: AuthUser | null = null;
+
+function emit() {
+    listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    // The storage event only fires in *other* tabs, so local writes call emit()
+    // themselves. Repeated addEventListener with the same function is a no-op.
+    window.addEventListener("storage", emit);
+    return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) window.removeEventListener("storage", emit);
+    };
+}
+
+function getUserSnapshot(): AuthUser | null {
+    const raw = localStorage.getItem(USER_KEY);
+    if (raw !== cachedRaw) {
+        cachedRaw = raw;
+        try {
+            cachedUser = raw ? (JSON.parse(raw) as AuthUser) : null;
+        } catch {
+            cachedUser = null; // Corrupt entry — treat it as logged out.
+        }
+    }
+    return cachedUser;
+}
+
+// The server has no localStorage, so it renders the logged-out shell and React
+// swaps in the real value during hydration.
+const getServerUserSnapshot = (): AuthUser | null => null;
+const alwaysTrue = () => true;
+const alwaysFalse = () => false;
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<AuthUser | null>(null);
-    const [loading, setLoading] = useState(true);
+    const user = useSyncExternalStore(subscribe, getUserSnapshot, getServerUserSnapshot);
+    // False until hydration completes, which is what lets the UI show a
+    // placeholder instead of flashing the logged-out navigation.
+    const hydrated = useSyncExternalStore(subscribe, alwaysTrue, alwaysFalse);
 
-    useEffect(() => {
-        const storedToken = localStorage.getItem("attest_token");
-        const storedUser = localStorage.getItem("attest_user");
-        if (storedToken && storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-        setLoading(false);
-    }, []);
-
-    async function login(email: string, password: string) {
+    const login = useCallback(async (email: string, password: string) => {
         const result = await api.login(email, password);
         const authUser: AuthUser = { id: result.id, email: result.email, role: result.role };
-        localStorage.setItem("attest_token", result.token);
-        localStorage.setItem("attest_user", JSON.stringify(authUser));
-        setUser(authUser);
-    }
+        localStorage.setItem(TOKEN_KEY, result.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(authUser));
+        emit();
+    }, []);
 
-    async function register(email: string, password: string) {
+    const register = useCallback(async (email: string, password: string) => {
         await api.register(email, password);
         // Registration always returns a VIEWER account — log the person straight in
         // afterward instead of making them re-type their credentials.
         await login(email, password);
-    }
+    }, [login]);
 
-    function logout() {
-        localStorage.removeItem("attest_token");
-        localStorage.removeItem("attest_user");
-        setUser(null);
-    }
+    const logout = useCallback(() => {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        emit();
+    }, []);
 
-    return (
-        <AuthContext.Provider value={{ user, loading, login, register, logout }}>
-            {children}
-        </AuthContext.Provider>
+    const value = useMemo<AuthContextValue>(
+        () => ({ user, loading: !hydrated, login, register, logout }),
+        [user, hydrated, login, register, logout],
     );
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

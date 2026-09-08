@@ -1,73 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import { Input, PasswordInput } from "@/components/ui/Field";
+import Alert from "@/components/ui/Alert";
+import { Wordmark } from "@/components/NavBar";
+
+const MIN_PASSWORD = 8;
 
 export default function RegisterPage() {
-    const { register } = useAuth();
-    const router = useRouter();
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [error, setError] = useState<string | null>(null);
-    const [submitting, setSubmitting] = useState(false);
+  const { register, user, loading } = useAuth();
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setError(null);
-        setSubmitting(true);
-        try {
-            await register(email, password);
-            router.push("/documents");
-        } catch (err) {
-            setError(err instanceof ApiError ? err.message : "Something went wrong. Is the backend running?");
-        } finally {
-            setSubmitting(false);
-        }
+  useEffect(() => {
+    if (!loading && user) router.replace("/dashboard");
+  }, [loading, user, router]);
+
+  const tooShort = password.length > 0 && password.length < MIN_PASSWORD;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await register(email, password);
+      router.replace("/dashboard");
+    } catch (err) {
+      // Registration then login is two calls against a 5/min/IP budget.
+      if (err instanceof ApiError && err.status === 429) {
+        setError("Too many attempts. The server allows 5 auth requests a minute — wait about a minute and try again.");
+      } else if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Could not reach the server. Is the backend running on port 8080?");
+      }
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    return (
-        <div className="max-w-sm mx-auto space-y-4">
-            <h1 className="text-xl font-bold">Register</h1>
-            <p className="text-sm text-gray-600">
-                New accounts always start as <strong>VIEWER</strong> — this is intentional (a
-                registration request can never grant itself elevated permissions). An
-                administrator has to promote your account to SIGNER before you can upload
-                documents.
-            </p>
-            <form onSubmit={handleSubmit} className="space-y-3">
-                <div>
-                    <label className="block text-sm text-gray-700 mb-1">Email</label>
-                    <input
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full border border-gray-300 rounded px-3 py-2"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm text-gray-700 mb-1">Password</label>
-                    <input
-                        type="password"
-                        required
-                        minLength={8}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full border border-gray-300 rounded px-3 py-2"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">At least 8 characters.</p>
-                </div>
-                {error && <p className="text-red-600 text-sm">{error}</p>}
-                <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full bg-indigo-900 text-white rounded py-2 disabled:opacity-50"
-                >
-                    {submitting ? "Creating account..." : "Register"}
-                </button>
-            </form>
+  return (
+    <div className="animate-fade-in mx-auto max-w-sm py-8">
+      <div className="mb-6 flex flex-col items-center gap-3 text-center">
+        <Wordmark />
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-ink-950">Create your account</h1>
+          <p className="mt-1 text-sm text-ink-500">It takes a moment — no invite needed.</p>
         </div>
-    );
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-ink-200 bg-white p-6 shadow-sm">
+        <Input
+          label="Email" type="email" required autoComplete="email" autoFocus
+          placeholder="you@company.com"
+          value={email} onChange={(e) => setEmail(e.target.value)}
+        />
+        <PasswordInput
+          label="Password" required minLength={MIN_PASSWORD} autoComplete="new-password"
+          placeholder="At least 8 characters"
+          hint={`Use at least ${MIN_PASSWORD} characters.`}
+          error={tooShort ? `Passwords must be at least ${MIN_PASSWORD} characters.` : null}
+          value={password} onChange={(e) => setPassword(e.target.value)}
+        />
+        {error && <Alert tone="error">{error}</Alert>}
+        <Button type="submit" fullWidth loading={submitting} disabled={tooShort}>
+          {submitting ? "Creating account…" : "Create account"}
+        </Button>
+      </form>
+
+      <Alert tone="info" title="New accounts start as Viewer" className="mt-4">
+        A registration request can never grant itself elevated permissions, so every new
+        account is a Viewer at the system level. Your team role — which is what actually
+        governs uploading and signing — is set separately by a team admin when you join a team.
+      </Alert>
+
+      <p className="mt-4 text-center text-sm text-ink-500">
+        Already have an account?{" "}
+        <Link href="/login" className="font-medium text-sui-700 hover:underline">
+          Sign in
+        </Link>
+      </p>
+    </div>
+  );
 }

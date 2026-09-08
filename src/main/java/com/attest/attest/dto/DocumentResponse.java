@@ -14,6 +14,7 @@ public record DocumentResponse(
         Long rootDocumentId,
         String documentHash,
         Long ownerId,
+        Long teamId,
         Instant createdAt
 ) {
     public static DocumentResponse from(Document doc) {
@@ -26,6 +27,7 @@ public record DocumentResponse(
                 doc.getRootDocumentId(),
                 doc.getDocumentHash(),
                 doc.getOwnerId(),
+                doc.getTeamId(),
                 doc.getCreatedAt()
         );
     }

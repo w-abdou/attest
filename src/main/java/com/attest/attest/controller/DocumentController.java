@@ -1,12 +1,11 @@
 package com.attest.attest.controller;
 
-import com.attest.attest.dto.AuditLogResponse;
-import com.attest.attest.dto.DocumentResponse;
-import com.attest.attest.dto.VerifyResponse;
-import com.attest.attest.model.AuditLog;
-import com.attest.attest.model.Document;
+import com.attest.attest.dto.*;
+import com.attest.attest.model.*;
+import com.attest.attest.repository.UserRepository;
 import com.attest.attest.service.DocumentService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,94 +18,94 @@ import java.util.List;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final UserRepository userRepository;
 
-    public DocumentController(DocumentService documentService) {
+    public DocumentController(DocumentService documentService, UserRepository userRepository) {
         this.documentService = documentService;
+        this.userRepository = userRepository;
     }
 
+    // All documents across the user's teams.
     @GetMapping
     public ResponseEntity<List<DocumentResponse>> list(HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        List<Document> docs = documentService.listDocuments(requesterId);
-        return ResponseEntity.ok(docs.stream().map(DocumentResponse::from).toList());
+        return ResponseEntity.ok(documentService.listDocumentsForUser(requesterId).stream().map(DocumentResponse::from).toList());
     }
 
-    @PostMapping
-    public ResponseEntity<DocumentResponse> upload(
-            @RequestParam("file") MultipartFile file,
-            HttpServletRequest request
-    ) throws IOException {
+    // Documents within one team.
+    @GetMapping("/team/{teamId}")
+    public ResponseEntity<List<DocumentResponse>> listForTeam(@PathVariable Long teamId, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
+        return ResponseEntity.ok(documentService.listDocumentsForTeam(teamId, requesterId).stream().map(DocumentResponse::from).toList());
+    }
 
-        Document doc = documentService.upload(file, requesterId, requesterRole);
-
+    // Upload into a team.
+    @PostMapping("/team/{teamId}")
+    public ResponseEntity<DocumentResponse> upload(@PathVariable Long teamId, @RequestParam("file") MultipartFile file, HttpServletRequest request) throws IOException {
+        Long requesterId = (Long) request.getAttribute("authenticatedUserId");
+        Document doc = documentService.upload(file, teamId, requesterId);
         return ResponseEntity.ok(DocumentResponse.from(doc));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<DocumentResponse> get(
-            @PathVariable Long id,
-            HttpServletRequest request
-    ) {
+    public ResponseEntity<DocumentResponse> get(@PathVariable Long id, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
-
-        Document doc = documentService.getDocument(id, requesterId, requesterRole);
-
-        return ResponseEntity.ok(DocumentResponse.from(doc));
+        return ResponseEntity.ok(DocumentResponse.from(documentService.getDocument(id, requesterId)));
     }
 
     @GetMapping("/{id}/versions")
-    public ResponseEntity<List<DocumentResponse>> versions(
-            @PathVariable Long id,
-            HttpServletRequest request
-    ) {
+    public ResponseEntity<List<DocumentResponse>> versions(@PathVariable Long id, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
-
-        List<Document> versions = documentService.getVersions(id, requesterId, requesterRole);
-
-        return ResponseEntity.ok(versions.stream().map(DocumentResponse::from).toList());
+        return ResponseEntity.ok(documentService.getVersions(id, requesterId).stream().map(DocumentResponse::from).toList());
     }
 
     @GetMapping("/{id}/audit")
-    public ResponseEntity<List<AuditLogResponse>> audit(
-            @PathVariable Long id,
-            HttpServletRequest request
-    ) {
+    public ResponseEntity<List<AuditLogResponse>> audit(@PathVariable Long id, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
-
-        List<AuditLog> logs = documentService.getAuditTrail(id, requesterId, requesterRole);
-
-        return ResponseEntity.ok(logs.stream().map(AuditLogResponse::from).toList());
+        return ResponseEntity.ok(documentService.getAuditTrail(id, requesterId).stream().map(AuditLogResponse::from).toList());
     }
 
     @PostMapping("/{id}/verify")
-    public ResponseEntity<VerifyResponse> verify(
-            @PathVariable Long id,
-            @RequestParam("file") MultipartFile file,
-            HttpServletRequest request
-    ) throws IOException {
+    public ResponseEntity<VerifyResponse> verify(@PathVariable Long id, @RequestParam("file") MultipartFile file, HttpServletRequest request) throws IOException {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
-        DocumentService.VerifyResult result = documentService.verify(id, file, requesterId, requesterRole);
-
+        DocumentService.VerifyResult result = documentService.verify(id, file, requesterId);
         return ResponseEntity.ok(new VerifyResponse(result.documentId(), result.verified(), result.resultMessage()));
     }
 
     @PostMapping("/{id}/amend")
-    public ResponseEntity<DocumentResponse> amend(
-            @PathVariable Long id,
-            @RequestParam("file") MultipartFile file,
-            HttpServletRequest request
-    ) throws IOException {
+    public ResponseEntity<DocumentResponse> amend(@PathVariable Long id, @RequestParam("file") MultipartFile file, HttpServletRequest request) throws IOException {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
-        String requesterRole = (String) request.getAttribute("authenticatedRole");
+        return ResponseEntity.ok(DocumentResponse.from(documentService.amend(id, file, requesterId)));
+    }
 
-        Document newVersion = documentService.amend(id, file, requesterId, requesterRole);
+    // Set required signers for this version.
+    @PutMapping("/{id}/signers")
+    public ResponseEntity<Void> assignSigners(@PathVariable Long id, @Valid @RequestBody AssignSignersRequest request, HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        documentService.assignSigners(id, request.signerUserIds(), requesterId);
+        return ResponseEntity.noContent().build();
+    }
 
-        return ResponseEntity.ok(DocumentResponse.from(newVersion));
+    // The signature status list: each required signer + whether they've signed.
+    @GetMapping("/{id}/signers")
+    public ResponseEntity<List<SignatureResponse>> signers(@PathVariable Long id, HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        List<DocumentSigner> required = documentService.getSigners(id, requesterId);
+        List<DocumentSignature> sigs = documentService.getSignatures(id, requesterId);
+
+        List<SignatureResponse> result = required.stream().map(r -> {
+            String email = userRepository.findById(r.getUserId()).map(User::getEmail).orElse("(unknown)");
+            var sig = sigs.stream().filter(s -> s.getSignerId().equals(r.getUserId())).findFirst();
+            return new SignatureResponse(r.getUserId(), email, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
+        }).toList();
+        return ResponseEntity.ok(result);
+    }
+
+    // Sign this version (only if assigned).
+    @PostMapping("/{id}/sign")
+    public ResponseEntity<Void> sign(@PathVariable Long id, HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        documentService.sign(id, requesterId);
+        return ResponseEntity.noContent().build();
     }
 }

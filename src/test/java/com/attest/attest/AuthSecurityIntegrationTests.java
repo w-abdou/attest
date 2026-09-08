@@ -56,7 +56,9 @@ class AuthSecurityIntegrationTests {
         String token = jwtService.generateToken(
                 userRepository.findByEmail(email).orElseThrow().getId(), "VIEWER");
 
-        mockMvc.perform(multipart("/api/documents").with(remoteIp(ip + "3"))
+        // This user belongs to no team, so uploading to any team must be forbidden.
+        // (Access is now governed by team membership, not the global role.)
+        mockMvc.perform(multipart("/api/documents/team/1").with(remoteIp(ip + "3"))
                         .header("Authorization", "Bearer " + token)
                         .file(new MockMultipartFile("file", "document.pdf", "application/pdf", "%PDF-1.4\ncontent".getBytes())))
                 .andExpect(status().isForbidden());

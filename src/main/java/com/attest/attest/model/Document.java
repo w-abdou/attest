@@ -30,6 +30,9 @@ public class Document {
     private Long ownerId;
 
     @Column(nullable = false)
+    private Long teamId;
+
+    @Column(nullable = false)
     private String documentHash;
 
     @Column(nullable = true)

@@ -3,6 +3,7 @@ package com.attest.attest.exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -39,6 +40,14 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<?> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", "HTTP method not supported for this endpoint"
+        ));
+    }
+
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<?> handleMissingPart(MissingServletRequestPartException ex) {
         return ResponseEntity.badRequest().body(Map.of(
@@ -66,6 +75,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<?> handleUserNotFound(UserNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(TeamNotFoundException.class)
+    public ResponseEntity<?> handleTeamNotFound(TeamNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(TeamMembershipException.class)
+    public ResponseEntity<?> handleMembership(TeamMembershipException ex) {
+        return ResponseEntity.badRequest().body(Map.of(
                 "timestamp", Instant.now().toString(),
                 "error", ex.getMessage()
         ));

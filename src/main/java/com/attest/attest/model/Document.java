@@ -45,7 +45,7 @@ public class Document {
     @Column(nullable = false)
     private Integer version = 1;
 
-    // --- Signing policy envelope (Week 2 / 2.4). Null until signers are assigned. ---
+    // --- Signing policy envelope (2.4). Null until signers are assigned. ---
 
     @Column(nullable = true)
     private String policyHash;

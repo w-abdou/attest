@@ -210,7 +210,9 @@ public class DocumentService {
         newVersion.setRootDocumentId(rootId);
         documentRepository.save(newVersion);
 
-         for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
+        // Signatures never carry across versions. Copy the *assignee list* forward as a
+        // convenience, but the new version starts with zero signatures.
+        for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
             DocumentSigner copy = new DocumentSigner();
             copy.setDocumentId(newVersion.getId());
             copy.setUserId(s.getUserId());
@@ -242,6 +244,11 @@ public class DocumentService {
                     .orElseThrow(() -> new ForbiddenException("User " + uid + " is not a member of this team"));
         }
 
+        // Replace the assignee set for this version. Existing signatures are also
+        // cleared so the new policy starts fresh (they bound to the old envelope).
+        // flush() forces the deletes to hit the database BEFORE the re-inserts,
+        // otherwise Hibernate may batch the inserts first and violate the
+        // (document_id, user_id) unique constraint on surviving signers.
         signerRepository.deleteByDocumentId(documentId);
         signatureRepository.deleteByDocumentId(documentId);
         signerRepository.flush();
@@ -253,7 +260,9 @@ public class DocumentService {
             signerRepository.save(s);
         }
 
-
+        // Recompute the policy + envelope hashes for the new signer set. This changes
+        // envelopeHash, which invalidates any signatures collected against the old
+        // policy (they bound to the old hash and no longer match).
         envelopeService.applyEnvelope(doc, signerUserIds);
         documentRepository.save(doc);
 
@@ -292,7 +301,9 @@ public class DocumentService {
         if (required.isEmpty()) {
             doc.setStatus(DocumentStatus.DRAFT);
         } else {
-
+            // Only signatures bound to the document's CURRENT envelopeHash count.
+            // A signature made against a previous policy (before signers were
+            // reassigned) is stale and does not count toward the threshold.
             String currentEnvelope = doc.getEnvelopeHash();
             long validSigned = signatureRepository.findByDocumentId(doc.getId()).stream()
                     .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))

@@ -24,6 +24,9 @@ public class DocumentSignature {
     @Column(nullable = false)
     private Long signerId;
 
+    // The document's envelopeHash at the moment this signature was made. If the
+    // document's envelopeHash later changes (signers reassigned), this signature
+    // no longer matches and is treated as stale/invalid.
     @Column(nullable = true)
     private String envelopeHash;
 

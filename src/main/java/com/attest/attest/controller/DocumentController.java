@@ -86,16 +86,22 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-    // The signature status list: each required signer + whether they've signed.
+
     @GetMapping("/{id}/signers")
     public ResponseEntity<List<SignatureResponse>> signers(@PathVariable Long id, HttpServletRequest http) {
         Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        Document doc = documentService.getDocument(id, requesterId);
+        String currentEnvelope = doc.getEnvelopeHash();
+
         List<DocumentSigner> required = documentService.getSigners(id, requesterId);
         List<DocumentSignature> sigs = documentService.getSignatures(id, requesterId);
 
         List<SignatureResponse> result = required.stream().map(r -> {
             String email = userRepository.findById(r.getUserId()).map(User::getEmail).orElse("(unknown)");
-            var sig = sigs.stream().filter(s -> s.getSignerId().equals(r.getUserId())).findFirst();
+            var sig = sigs.stream()
+                    .filter(s -> s.getSignerId().equals(r.getUserId()))
+                    .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))
+                    .findFirst();
             return new SignatureResponse(r.getUserId(), email, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
         }).toList();
         return ResponseEntity.ok(result);

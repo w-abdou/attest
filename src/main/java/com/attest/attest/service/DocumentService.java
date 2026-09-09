@@ -7,6 +7,7 @@ import com.attest.attest.model.*;
 import com.attest.attest.repository.*;
 import com.attest.attest.storage.DocumentStorageService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -85,6 +86,7 @@ public class DocumentService {
         }
     }
 
+    @Transactional
     public Document upload(MultipartFile file, Long teamId, Long requesterId) throws IOException {
         authorizeCanWrite(teamId, requesterId);
         validateFile(file);
@@ -169,6 +171,7 @@ public class DocumentService {
         return auditLogRepository.findByDocumentIdInOrderByTimestampAsc(versionIds);
     }
 
+    @Transactional
     public VerifyResult verify(Long id, MultipartFile file, Long requesterId) throws IOException {
         Document doc = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
@@ -181,6 +184,7 @@ public class DocumentService {
         return new VerifyResult(doc.getId(), matches);
     }
 
+    @Transactional
     public Document amend(Long id, MultipartFile file, Long requesterId) throws IOException {
         Document original = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
@@ -206,9 +210,7 @@ public class DocumentService {
         newVersion.setRootDocumentId(rootId);
         documentRepository.save(newVersion);
 
-        // Signatures never carry across versions. Copy the *assignee list* forward as a
-        // convenience, but the new version starts with zero signatures.
-        for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
+         for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
             DocumentSigner copy = new DocumentSigner();
             copy.setDocumentId(newVersion.getId());
             copy.setUserId(s.getUserId());
@@ -222,6 +224,7 @@ public class DocumentService {
     // ---- assignment & signing ----
 
     /** Only the uploader (or a team admin) may set who must sign this specific version. */
+    @Transactional
     public void assignSigners(Long documentId, List<Long> signerUserIds, Long requesterId) {
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
@@ -239,9 +242,10 @@ public class DocumentService {
                     .orElseThrow(() -> new ForbiddenException("User " + uid + " is not a member of this team"));
         }
 
-        // Replace the assignee set for this version. Existing signatures for removed
-        // signers are also cleared to keep state consistent.
         signerRepository.deleteByDocumentId(documentId);
+        signatureRepository.deleteByDocumentId(documentId);
+        signerRepository.flush();
+        signatureRepository.flush();
         for (Long uid : signerUserIds) {
             DocumentSigner s = new DocumentSigner();
             s.setDocumentId(documentId);
@@ -249,9 +253,7 @@ public class DocumentService {
             signerRepository.save(s);
         }
 
-        // Recompute the policy + envelope hashes for the new signer set. This
-        // changes envelopeHash, which is exactly what invalidates any signatures
-        // already collected against the old policy (they bound to the old hash).
+
         envelopeService.applyEnvelope(doc, signerUserIds);
         documentRepository.save(doc);
 
@@ -260,6 +262,7 @@ public class DocumentService {
     }
 
     /** A user may sign only if they were assigned to THIS version. Role alone is never enough. */
+    @Transactional
     public void sign(Long documentId, Long requesterId) {
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
@@ -289,9 +292,7 @@ public class DocumentService {
         if (required.isEmpty()) {
             doc.setStatus(DocumentStatus.DRAFT);
         } else {
-            // Only signatures bound to the document's CURRENT envelopeHash count.
-            // A signature made against a previous policy (before signers were
-            // reassigned) is stale and does not count toward the threshold.
+
             String currentEnvelope = doc.getEnvelopeHash();
             long validSigned = signatureRepository.findByDocumentId(doc.getId()).stream()
                     .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))

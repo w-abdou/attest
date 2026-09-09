@@ -19,7 +19,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/teams", label: "Teams", icon: <UsersIcon /> },
   { href: "/documents", label: "Documents", icon: <FileIcon /> },
   { href: "/wallet", label: "Wallet", icon: <ShieldIcon /> },
-  { href: "/admin", label: "Admin", icon: <SettingsIcon />, adminOnly: true },
+  // { href: "/admin", label: "Admin", icon: <SettingsIcon />, adminOnly: true },
 ];
 
 export function Wordmark({ className = "" }: { className?: string }) {

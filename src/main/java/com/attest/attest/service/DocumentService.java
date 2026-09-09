@@ -249,9 +249,9 @@ public class DocumentService {
             signerRepository.save(s);
         }
 
-        // Recompute the policy + envelope hashes for the new signer set. This
-        // changes envelopeHash, which is exactly what invalidates any signatures
-        // already collected against the old policy (they bound to the old hash).
+        // Recompute the policy + envelope hashes for the new signer set. This changes
+        // envelopeHash, which invalidates any signatures collected against the old
+        // policy (they bound to the old hash and no longer match).
         envelopeService.applyEnvelope(doc, signerUserIds);
         documentRepository.save(doc);
 

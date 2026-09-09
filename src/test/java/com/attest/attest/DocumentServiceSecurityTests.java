@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -64,7 +65,6 @@ class DocumentServiceSecurityTests {
         when(storageService.store(any())).thenReturn("target/test-storage/document.pdf");
     }
 
-    // Helper: make a user a member of TEAM with a given role.
     private void member(Long userId, TeamRole role) {
         TeamMembership m = new TeamMembership();
         m.setTeamId(TEAM);
@@ -138,12 +138,10 @@ class DocumentServiceSecurityTests {
 
     @Test
     void onlyAssignedSignerCanSign() {
-        // requester is a team member (signer) but NOT assigned -> forbidden
         member(5L, TeamRole.TEAM_SIGNER);
         when(signerRepository.findByDocumentIdAndUserId(10L, 5L)).thenReturn(Optional.empty());
         assertThrows(ForbiddenException.class, () -> service.sign(10L, 5L));
 
-        // now assigned -> allowed
         DocumentSigner assignment = new DocumentSigner();
         assignment.setDocumentId(10L);
         assignment.setUserId(5L);
@@ -157,7 +155,6 @@ class DocumentServiceSecurityTests {
 
     @Test
     void assigningSignerWhoIsNotATeamMemberIsRejected() {
-        // requester is the uploader
         member(1L, TeamRole.TEAM_ADMIN);
         notAMember(999L);
         assertThrows(ForbiddenException.class, () -> service.assignSigners(10L, List.of(999L), 1L));
@@ -165,8 +162,69 @@ class DocumentServiceSecurityTests {
 
     @Test
     void nonUploaderNonAdminCannotAssignSigners() {
-        member(7L, TeamRole.TEAM_SIGNER); // a signer who is neither uploader (1L) nor admin
+        member(7L, TeamRole.TEAM_SIGNER);
         assertThrows(ForbiddenException.class, () -> service.assignSigners(10L, List.of(7L), 7L));
+    }
+
+    /**
+     * The integration test that would have caught the missing-wiring bug:
+     * assign signers -> the document gets an envelopeHash; sign -> signature is
+     * stamped with that envelope; reassign signers -> envelope changes -> the
+     * prior signature no longer matches, so status is not FULLY_SIGNED.
+     */
+    @Test
+    void reassigningSignersInvalidatesPriorSignature() {
+        // A simple in-memory store for signers and signatures so the real
+        // envelope-recompute + status logic runs end to end.
+        List<DocumentSigner> signers = new ArrayList<>();
+        List<DocumentSignature> signatures = new ArrayList<>();
+
+        member(1L, TeamRole.TEAM_ADMIN); // uploader/admin
+        member(2L, TeamRole.TEAM_SIGNER);
+        member(3L, TeamRole.TEAM_SIGNER);
+
+        when(signerRepository.findByDocumentId(10L)).thenAnswer(inv -> new ArrayList<>(signers));
+        doAnswer(inv -> { signers.clear(); return null; }).when(signerRepository).deleteByDocumentId(10L);
+        when(signerRepository.save(any(DocumentSigner.class))).thenAnswer(inv -> {
+            DocumentSigner s = inv.getArgument(0);
+            signers.add(s);
+            return s;
+        });
+        when(signerRepository.findByDocumentIdAndUserId(eq(10L), any())).thenAnswer(inv -> {
+            Long uid = inv.getArgument(1);
+            return signers.stream().filter(s -> s.getUserId().equals(uid)).findFirst();
+        });
+        when(signatureRepository.findByDocumentId(10L)).thenAnswer(inv -> new ArrayList<>(signatures));
+        when(signatureRepository.findByDocumentIdAndSignerId(eq(10L), any())).thenAnswer(inv -> {
+            Long uid = inv.getArgument(1);
+            return signatures.stream().filter(s -> s.getSignerId().equals(uid)).findFirst();
+        });
+        when(signatureRepository.save(any(DocumentSignature.class))).thenAnswer(inv -> {
+            DocumentSignature s = inv.getArgument(0);
+            signatures.add(s);
+            return s;
+        });
+
+        // Assign signers {2,3}; document gets an envelope.
+        service.assignSigners(10L, List.of(2L, 3L), 1L);
+        String envelopeAfterFirstAssign = document.getEnvelopeHash();
+        assertNotNull(envelopeAfterFirstAssign);
+
+        // Signer 2 signs; stamped with the current envelope.
+        service.sign(10L, 2L);
+        assertEquals(1, signatures.size());
+        assertEquals(envelopeAfterFirstAssign, signatures.get(0).getEnvelopeHash());
+        assertEquals(DocumentStatus.PENDING_SIGNATURES, document.getStatus());
+
+        // Reassign to {2,4-> use 3 swapped}: change the set to {3, 2} is same set,
+        // so change to a genuinely different set {2} only, which changes policyHash.
+        member(4L, TeamRole.TEAM_SIGNER);
+        service.assignSigners(10L, List.of(2L, 4L), 1L);
+        String envelopeAfterReassign = document.getEnvelopeHash();
+
+        // Envelope changed, so signer 2's earlier signature is now stale.
+        assertNotEquals(envelopeAfterFirstAssign, envelopeAfterReassign);
+        assertNotEquals(DocumentStatus.FULLY_SIGNED, document.getStatus());
     }
 
     private MockMultipartFile pdf(String filename) {

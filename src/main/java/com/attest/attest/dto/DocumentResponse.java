@@ -15,6 +15,9 @@ public record DocumentResponse(
         String documentHash,
         Long ownerId,
         Long teamId,
+        String policyHash,
+        String envelopeHash,
+        Instant expiry,
         Instant createdAt
 ) {
     public static DocumentResponse from(Document doc) {
@@ -28,6 +31,9 @@ public record DocumentResponse(
                 doc.getDocumentHash(),
                 doc.getOwnerId(),
                 doc.getTeamId(),
+                doc.getPolicyHash(),
+                doc.getEnvelopeHash(),
+                doc.getExpiry(),
                 doc.getCreatedAt()
         );
     }

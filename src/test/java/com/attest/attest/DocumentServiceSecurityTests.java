@@ -5,6 +5,7 @@ import com.attest.attest.exception.InvalidFileException;
 import com.attest.attest.model.*;
 import com.attest.attest.repository.*;
 import com.attest.attest.service.DocumentService;
+import com.attest.attest.service.EnvelopeService;
 import com.attest.attest.service.HashService;
 import com.attest.attest.service.TeamService;
 import com.attest.attest.storage.DocumentStorageService;
@@ -44,8 +45,12 @@ class DocumentServiceSecurityTests {
         signatureRepository = mock(DocumentSignatureRepository.class);
         membershipRepository = mock(TeamMembershipRepository.class);
 
-        service = new DocumentService(documentRepository, storageService, new HashService(),
-                auditLogRepository, teamService, signerRepository, signatureRepository, membershipRepository);
+        HashService hashService = new HashService();
+        EnvelopeService envelopeService = new EnvelopeService(hashService);
+
+        service = new DocumentService(documentRepository, storageService, hashService,
+                auditLogRepository, teamService, signerRepository, signatureRepository, membershipRepository,
+                envelopeService);
 
         document = new Document();
         document.setId(10L);

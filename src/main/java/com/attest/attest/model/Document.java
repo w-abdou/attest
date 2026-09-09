@@ -45,6 +45,17 @@ public class Document {
     @Column(nullable = false)
     private Integer version = 1;
 
+    // --- Signing policy envelope (Week 2 / 2.4). Null until signers are assigned. ---
+
+    @Column(nullable = true)
+    private String policyHash;
+
+    @Column(nullable = true)
+    private String envelopeHash;
+
+    @Column(nullable = true)
+    private Instant expiry;
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 }

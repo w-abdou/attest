@@ -31,11 +31,12 @@ public class DocumentService {
     private final DocumentSignerRepository signerRepository;
     private final DocumentSignatureRepository signatureRepository;
     private final TeamMembershipRepository membershipRepository;
+    private final EnvelopeService envelopeService;
 
     public DocumentService(DocumentRepository documentRepository, DocumentStorageService storageService,
                            HashService hashService, AuditLogRepository auditLogRepository, TeamService teamService,
                            DocumentSignerRepository signerRepository, DocumentSignatureRepository signatureRepository,
-                           TeamMembershipRepository membershipRepository) {
+                           TeamMembershipRepository membershipRepository, EnvelopeService envelopeService) {
         this.documentRepository = documentRepository;
         this.storageService = storageService;
         this.hashService = hashService;
@@ -44,6 +45,7 @@ public class DocumentService {
         this.signerRepository = signerRepository;
         this.signatureRepository = signatureRepository;
         this.membershipRepository = membershipRepository;
+        this.envelopeService = envelopeService;
     }
 
     private void validateFile(MultipartFile file) {
@@ -246,6 +248,13 @@ public class DocumentService {
             s.setUserId(uid);
             signerRepository.save(s);
         }
+
+        // Recompute the policy + envelope hashes for the new signer set. This
+        // changes envelopeHash, which is exactly what invalidates any signatures
+        // already collected against the old policy (they bound to the old hash).
+        envelopeService.applyEnvelope(doc, signerUserIds);
+        documentRepository.save(doc);
+
         recomputeStatus(doc);
         logAction(documentId, "SIGNERS_ASSIGNED", requesterId, signerUserIds.toString());
     }
@@ -267,6 +276,8 @@ public class DocumentService {
             DocumentSignature sig = new DocumentSignature();
             sig.setDocumentId(documentId);
             sig.setSignerId(requesterId);
+            // Bind this signature to the envelope it was made against.
+            sig.setEnvelopeHash(doc.getEnvelopeHash());
             signatureRepository.save(sig);
             logAction(documentId, "SIGNED", requesterId, null);
         }
@@ -278,8 +289,14 @@ public class DocumentService {
         if (required.isEmpty()) {
             doc.setStatus(DocumentStatus.DRAFT);
         } else {
-            long signed = signatureRepository.findByDocumentId(doc.getId()).size();
-            doc.setStatus(signed >= required.size() ? DocumentStatus.FULLY_SIGNED : DocumentStatus.PENDING_SIGNATURES);
+            // Only signatures bound to the document's CURRENT envelopeHash count.
+            // A signature made against a previous policy (before signers were
+            // reassigned) is stale and does not count toward the threshold.
+            String currentEnvelope = doc.getEnvelopeHash();
+            long validSigned = signatureRepository.findByDocumentId(doc.getId()).stream()
+                    .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))
+                    .count();
+            doc.setStatus(validSigned >= required.size() ? DocumentStatus.FULLY_SIGNED : DocumentStatus.PENDING_SIGNATURES);
         }
         documentRepository.save(doc);
     }

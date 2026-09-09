@@ -25,35 +25,27 @@ class EnvelopeBindingTests {
     void policyHashIsOrderIndependent() {
         assertEquals(
                 envelope.computePolicyHash(List.of(1L, 2L, 3L)),
-                envelope.computePolicyHash(List.of(3L, 1L, 2L)),
-                "Signer order must not change the policy hash");
+                envelope.computePolicyHash(List.of(3L, 1L, 2L)));
     }
 
     @Test
     void changingSignerSetChangesPolicyHash() {
         String before = envelope.computePolicyHash(List.of(1L, 2L, 3L));
-        String after = envelope.computePolicyHash(List.of(1L, 2L, 4L)); // CEO swapped
-        assertNotEquals(before, after, "Changing a required signer must change the policy hash");
+        String after = envelope.computePolicyHash(List.of(1L, 2L, 4L));
+        assertNotEquals(before, after);
     }
 
     @Test
     void envelopeHashChangesWhenPolicyChanges_invalidatingOldSignatures() {
-        // A document with an initial policy (signers 1,2,3).
         Document doc = docWith(10L, "abc123", 1);
         envelope.applyEnvelope(doc, List.of(1L, 2L, 3L));
-        String envelopeWhenLegalSigned = doc.getEnvelopeHash();
-        assertNotNull(envelopeWhenLegalSigned);
+        String legalSignatureEnvelope = doc.getEnvelopeHash();
+        assertNotNull(legalSignatureEnvelope);
 
-        // Legal (signer 1) signs, binding to that envelope. Simulated by capturing it.
-        String legalSignatureEnvelope = envelopeWhenLegalSigned;
-
-        // Admin swaps the required CEO (3 -> 4) before Finance signs.
         envelope.applyEnvelope(doc, List.of(1L, 2L, 4L));
         String newEnvelope = doc.getEnvelopeHash();
 
-        // The envelope changed, so Legal's signature no longer matches — it's stale.
-        assertNotEquals(legalSignatureEnvelope, newEnvelope,
-                "After the policy changes, a previously collected signature must no longer match the envelope");
+        assertNotEquals(legalSignatureEnvelope, newEnvelope);
     }
 
     @Test

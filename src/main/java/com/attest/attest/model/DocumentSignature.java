@@ -18,12 +18,14 @@ public class DocumentSignature {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // A specific immutable version — signatures never cross versions.
     @Column(nullable = false)
     private Long documentId;
 
     @Column(nullable = false)
     private Long signerId;
+
+    @Column(nullable = true)
+    private String envelopeHash;
 
     @Column(nullable = false)
     private Instant signedAt = Instant.now();

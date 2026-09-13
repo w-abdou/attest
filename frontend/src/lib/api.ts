@@ -11,7 +11,7 @@ export class ApiError extends Error {
 export type Role = "ADMIN" | "SIGNER" | "VIEWER";
 export type TeamRole = "TEAM_ADMIN" | "TEAM_SIGNER" | "TEAM_VIEWER";
 
-export interface UserResponse { id: number; email: string; role: Role; }
+export interface UserResponse { id: number; email: string; role: Role; suiAddress: string | null; }
 export interface LoginResponse extends UserResponse { token: string; }
 
 export interface TeamResponse { id: number; name: string; createdBy: number; createdAt: string; yourRole: TeamRole; }
@@ -67,6 +67,20 @@ export async function login(email: string, password: string): Promise<LoginRespo
     body: JSON.stringify({ email, password }),
   });
   return handleResponse<LoginResponse>(res);
+}
+
+export async function getMe(): Promise<UserResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/users/me`, { headers: { ...authHeaders() } });
+  return handleResponse<UserResponse>(res);
+}
+
+export async function linkSuiAddress(suiAddress: string): Promise<UserResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/users/me/sui-address`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ suiAddress }),
+  });
+  return handleResponse<UserResponse>(res);
 }
 
 // --- teams ---

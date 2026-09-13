@@ -72,7 +72,6 @@ public class DocumentService {
 
     // ---- authorization now flows through team membership ----
 
-    /** Any member of the document's team may read/verify it. */
     private TeamMembership authorizeTeamMember(Document document, Long requesterId) {
         return membershipRepository.findByTeamIdAndUserId(document.getTeamId(), requesterId)
                 .orElseThrow(() -> new ForbiddenException("You are not a member of this document's team"));
@@ -111,7 +110,6 @@ public class DocumentService {
         return doc;
     }
 
-    /** All documents in every team the requester belongs to, latest version per family, newest first. */
     public List<Document> listDocumentsForUser(Long requesterId) {
         List<Long> teamIds = teamService.membershipsForUser(requesterId).stream()
                 .map(TeamMembership::getTeamId).toList();
@@ -130,7 +128,6 @@ public class DocumentService {
                 .toList();
     }
 
-    /** Documents belonging to a single team (requester must be a member), latest version per family. */
     public List<Document> listDocumentsForTeam(Long teamId, Long requesterId) {
         teamService.getTeam(teamId);
         teamService.requireMembership(teamId, requesterId);
@@ -210,8 +207,6 @@ public class DocumentService {
         newVersion.setRootDocumentId(rootId);
         documentRepository.save(newVersion);
 
-        // Signatures never carry across versions. Copy the *assignee list* forward as a
-        // convenience, but the new version starts with zero signatures.
         for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
             DocumentSigner copy = new DocumentSigner();
             copy.setDocumentId(newVersion.getId());
@@ -225,7 +220,6 @@ public class DocumentService {
 
     // ---- assignment & signing ----
 
-    /** Only the uploader (or a team admin) may set who must sign this specific version. */
     @Transactional
     public void assignSigners(Long documentId, List<Long> signerUserIds, Long requesterId) {
         Document doc = documentRepository.findById(documentId)
@@ -238,17 +232,11 @@ public class DocumentService {
             throw new ForbiddenException("Only the uploader or a team admin can set required signers");
         }
 
-        // Every assignee must be a member of the document's team.
         for (Long uid : signerUserIds) {
             membershipRepository.findByTeamIdAndUserId(doc.getTeamId(), uid)
                     .orElseThrow(() -> new ForbiddenException("User " + uid + " is not a member of this team"));
         }
 
-        // Replace the assignee set for this version. Existing signatures are also
-        // cleared so the new policy starts fresh (they bound to the old envelope).
-        // flush() forces the deletes to hit the database BEFORE the re-inserts,
-        // otherwise Hibernate may batch the inserts first and violate the
-        // (document_id, user_id) unique constraint on surviving signers.
         signerRepository.deleteByDocumentId(documentId);
         signatureRepository.deleteByDocumentId(documentId);
         signerRepository.flush();
@@ -260,9 +248,6 @@ public class DocumentService {
             signerRepository.save(s);
         }
 
-        // Recompute the policy + envelope hashes for the new signer set. This changes
-        // envelopeHash, which invalidates any signatures collected against the old
-        // policy (they bound to the old hash and no longer match).
         envelopeService.applyEnvelope(doc, signerUserIds);
         documentRepository.save(doc);
 
@@ -270,25 +255,20 @@ public class DocumentService {
         logAction(documentId, "SIGNERS_ASSIGNED", requesterId, signerUserIds.toString());
     }
 
-    /** A user may sign only if they were assigned to THIS version. Role alone is never enough. */
     @Transactional
     public void sign(Long documentId, Long requesterId) {
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
 
-        // Must be a team member at all.
         authorizeTeamMember(doc, requesterId);
 
-        // Must be in this version's assignee set.
         signerRepository.findByDocumentIdAndUserId(documentId, requesterId)
                 .orElseThrow(() -> new ForbiddenException("You are not an assigned signer for this document"));
 
-        // Idempotent: don't create duplicate signatures.
         if (signatureRepository.findByDocumentIdAndSignerId(documentId, requesterId).isEmpty()) {
             DocumentSignature sig = new DocumentSignature();
             sig.setDocumentId(documentId);
             sig.setSignerId(requesterId);
-            // Bind this signature to the envelope it was made against.
             sig.setEnvelopeHash(doc.getEnvelopeHash());
             signatureRepository.save(sig);
             logAction(documentId, "SIGNED", requesterId, null);
@@ -301,9 +281,6 @@ public class DocumentService {
         if (required.isEmpty()) {
             doc.setStatus(DocumentStatus.DRAFT);
         } else {
-            // Only signatures bound to the document's CURRENT envelopeHash count.
-            // A signature made against a previous policy (before signers were
-            // reassigned) is stale and does not count toward the threshold.
             String currentEnvelope = doc.getEnvelopeHash();
             long validSigned = signatureRepository.findByDocumentId(doc.getId()).stream()
                     .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))
@@ -311,6 +288,29 @@ public class DocumentService {
             doc.setStatus(validSigned >= required.size() ? DocumentStatus.FULLY_SIGNED : DocumentStatus.PENDING_SIGNATURES);
         }
         documentRepository.save(doc);
+    }
+
+    @Transactional
+    public Document recordOnchainRegistration(Long documentId, String objectId, String txDigest,
+                                              String packageId, String network, Long requesterId) {
+        Document doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId));
+
+        boolean isUploader = doc.getOwnerId().equals(requesterId);
+        boolean isTeamAdmin = membershipRepository.findByTeamIdAndUserId(doc.getTeamId(), requesterId)
+                .map(m -> m.getTeamRole() == TeamRole.TEAM_ADMIN).orElse(false);
+        if (!isUploader && !isTeamAdmin) {
+            throw new ForbiddenException("Only the uploader or a team admin can register this document on-chain");
+        }
+
+        doc.setOnchainObjectId(objectId);
+        doc.setOnchainTxDigest(txDigest);
+        doc.setOnchainPackageId(packageId);
+        doc.setOnchainNetwork(network);
+        documentRepository.save(doc);
+
+        logAction(documentId, "ONCHAIN_REGISTERED", requesterId, "object " + objectId + " tx " + txDigest);
+        return doc;
     }
 
     public List<DocumentSigner> getSigners(Long documentId, Long requesterId) {

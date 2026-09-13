@@ -18,6 +18,10 @@ public record DocumentResponse(
         String policyHash,
         String envelopeHash,
         Instant expiry,
+        String onchainObjectId,
+        String onchainPackageId,
+        String onchainNetwork,
+        String onchainTxDigest,
         Instant createdAt
 ) {
     public static DocumentResponse from(Document doc) {
@@ -34,6 +38,10 @@ public record DocumentResponse(
                 doc.getPolicyHash(),
                 doc.getEnvelopeHash(),
                 doc.getExpiry(),
+                doc.getOnchainObjectId(),
+                doc.getOnchainPackageId(),
+                doc.getOnchainNetwork(),
+                doc.getOnchainTxDigest(),
                 doc.getCreatedAt()
         );
     }

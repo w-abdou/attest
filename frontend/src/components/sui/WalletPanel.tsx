@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { DAppKitProvider, useCurrentAccount, useCurrentNetwork, useWallets, useDAppKit } from "@mysten/dapp-kit-react";
 import { dAppKit } from "@/lib/dappKit";
+import * as api from "@/lib/api";
+import { ApiError } from "@/lib/api";
 
 function shortAddress(addr: string) {
     return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -12,6 +15,9 @@ function WalletControls() {
     const network = useCurrentNetwork();
     const wallets = useWallets();
     const dAppKit = useDAppKit();
+
+    const [linking, setLinking] = useState(false);
+    const [linkMsg, setLinkMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
     const googleWallet = wallets.find((w) => /google/i.test(w.name));
     const slushWallet = wallets.find((w) => /slush/i.test(w.name));
@@ -29,8 +35,26 @@ function WalletControls() {
     async function disconnect() {
         try {
             await dAppKit.disconnectWallet();
+            setLinkMsg(null);
         } catch {
             /* already disconnected */
+        }
+    }
+
+    async function linkToAccount() {
+        if (!account) return;
+        setLinking(true);
+        setLinkMsg(null);
+        try {
+            await api.linkSuiAddress(account.address);
+            setLinkMsg({ tone: "ok", text: "This wallet is now linked to your Attest account." });
+        } catch (err) {
+            setLinkMsg({
+                tone: "err",
+                text: err instanceof ApiError ? err.message : "Could not link this wallet.",
+            });
+        } finally {
+            setLinking(false);
         }
     }
 
@@ -83,12 +107,38 @@ function WalletControls() {
                     )}
                 </div>
             </div>
-            <button
-                onClick={disconnect}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-300 px-3 text-sm font-medium text-ink-700 transition-colors hover:bg-ink-50"
-            >
-                Disconnect {shortAddress(account.address)}
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    onClick={linkToAccount}
+                    disabled={linking}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-sui-600 px-3 text-sm font-medium text-white shadow-sm shadow-sui-600/30 transition-colors hover:bg-sui-700 disabled:opacity-50"
+                >
+                    {linking ? "Linking…" : "Link this wallet to my account"}
+                </button>
+                <button
+                    onClick={disconnect}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-300 px-3 text-sm font-medium text-ink-700 transition-colors hover:bg-ink-50"
+                >
+                    Disconnect {shortAddress(account.address)}
+                </button>
+            </div>
+
+            {linkMsg && (
+                <p
+                    className={`rounded-lg border p-2 text-sm ${
+                        linkMsg.tone === "ok"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-red-200 bg-red-50 text-red-700"
+                    }`}
+                >
+                    {linkMsg.text}
+                </p>
+            )}
+            <p className="text-xs text-ink-500">
+                Linking records that this Sui address belongs to your account, so you can be assigned
+                as an on-chain signer. One address can belong to only one account.
+            </p>
         </div>
     );
 }

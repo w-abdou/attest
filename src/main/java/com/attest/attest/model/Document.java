@@ -45,8 +45,6 @@ public class Document {
     @Column(nullable = false)
     private Integer version = 1;
 
-    // --- Signing policy envelope (2.4). Null until signers are assigned. ---
-
     @Column(nullable = true)
     private String policyHash;
 
@@ -55,6 +53,18 @@ public class Document {
 
     @Column(nullable = true)
     private Instant expiry;
+
+    @Column(nullable = true)
+    private String onchainObjectId;
+
+    @Column(nullable = true)
+    private String onchainPackageId;
+
+    @Column(nullable = true)
+    private String onchainNetwork;
+
+    @Column(nullable = true)
+    private String onchainTxDigest;
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();

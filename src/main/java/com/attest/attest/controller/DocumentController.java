@@ -25,21 +25,18 @@ public class DocumentController {
         this.userRepository = userRepository;
     }
 
-    // All documents across the user's teams.
     @GetMapping
     public ResponseEntity<List<DocumentResponse>> list(HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
         return ResponseEntity.ok(documentService.listDocumentsForUser(requesterId).stream().map(DocumentResponse::from).toList());
     }
 
-    // Documents within one team.
     @GetMapping("/team/{teamId}")
     public ResponseEntity<List<DocumentResponse>> listForTeam(@PathVariable Long teamId, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
         return ResponseEntity.ok(documentService.listDocumentsForTeam(teamId, requesterId).stream().map(DocumentResponse::from).toList());
     }
 
-    // Upload into a team.
     @PostMapping("/team/{teamId}")
     public ResponseEntity<DocumentResponse> upload(@PathVariable Long teamId, @RequestParam("file") MultipartFile file, HttpServletRequest request) throws IOException {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
@@ -78,14 +75,12 @@ public class DocumentController {
         return ResponseEntity.ok(DocumentResponse.from(documentService.amend(id, file, requesterId)));
     }
 
-    // Set required signers for this version.
     @PutMapping("/{id}/signers")
     public ResponseEntity<Void> assignSigners(@PathVariable Long id, @Valid @RequestBody AssignSignersRequest request, HttpServletRequest http) {
         Long requesterId = (Long) http.getAttribute("authenticatedUserId");
         documentService.assignSigners(id, request.signerUserIds(), requesterId);
         return ResponseEntity.noContent().build();
     }
-
 
     @GetMapping("/{id}/signers")
     public ResponseEntity<List<SignatureResponse>> signers(@PathVariable Long id, HttpServletRequest http) {
@@ -97,21 +92,34 @@ public class DocumentController {
         List<DocumentSignature> sigs = documentService.getSignatures(id, requesterId);
 
         List<SignatureResponse> result = required.stream().map(r -> {
-            String email = userRepository.findById(r.getUserId()).map(User::getEmail).orElse("(unknown)");
+            User u = userRepository.findById(r.getUserId()).orElse(null);
+            String email = u != null ? u.getEmail() : "(unknown)";
+            String suiAddress = u != null ? u.getSuiAddress() : null;
             var sig = sigs.stream()
                     .filter(s -> s.getSignerId().equals(r.getUserId()))
                     .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))
                     .findFirst();
-            return new SignatureResponse(r.getUserId(), email, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
+            return new SignatureResponse(r.getUserId(), email, suiAddress, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
         }).toList();
         return ResponseEntity.ok(result);
     }
 
-    // Sign this version (only if assigned).
     @PostMapping("/{id}/sign")
     public ResponseEntity<Void> sign(@PathVariable Long id, HttpServletRequest http) {
         Long requesterId = (Long) http.getAttribute("authenticatedUserId");
         documentService.sign(id, requesterId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/onchain-registration")
+    public ResponseEntity<DocumentResponse> recordOnchain(@PathVariable Long id,
+                                                          @Valid @RequestBody OnchainRegistrationRequest req,
+                                                          HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        Document doc = documentService.recordOnchainRegistration(
+                id, req.objectId(), req.txDigest(),
+                com.attest.attest.model.Document.class.getName().isEmpty() ? null : null,
+                null, requesterId);
+        return ResponseEntity.ok(DocumentResponse.from(doc));
     }
 }

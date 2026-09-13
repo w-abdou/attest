@@ -32,6 +32,5 @@ public class AdminController {
         }
 
         User updated = userService.updateRole(id, request.role());
-        return ResponseEntity.ok(new UserResponse(updated.getId(), updated.getEmail(), updated.getRole()));
-    }
+        return ResponseEntity.ok(UserResponse.from(updated));    }
 }

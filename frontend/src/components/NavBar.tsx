@@ -8,7 +8,7 @@ import Avatar from "./ui/Avatar";
 import Badge from "./ui/Badge";
 import { buttonClass } from "./ui/Button";
 import {
-  HomeIcon, UsersIcon, FileIcon, LogOutIcon, MenuIcon, CloseIcon, ShieldIcon,
+  HomeIcon, UsersIcon, FileIcon, LogOutIcon, MenuIcon, CloseIcon, ShieldIcon, SettingsIcon,
 } from "./ui/Icons";
 import { ROLE_LABEL, displayIdentity, shortHash } from "@/lib/format";
 
@@ -107,7 +107,7 @@ export default function NavBar() {
                   aria-label="Account menu"
                   className="flex items-center gap-2 rounded-full p-0.5 transition-colors hover:bg-ink-100"
                 >
-                  <Avatar identity={displayIdentity(user.email, user.suiAddress)} />
+                  <Avatar identity={displayIdentity(user.username, user.email, user.suiAddress)} />
                 </button>
 
                 {menuOpen && (
@@ -116,14 +116,16 @@ export default function NavBar() {
                     className="animate-rise absolute right-0 mt-2 w-60 overflow-hidden rounded-xl border border-ink-200 bg-white shadow-lg shadow-ink-900/10"
                   >
                     <div className="border-b border-ink-100 px-4 py-3">
-                      {user.email && (
+                      {user.username ? (
+                        <p className="truncate text-sm font-medium text-ink-900">@{user.username}</p>
+                      ) : user.email ? (
                         <p className="truncate text-sm font-medium text-ink-900">{user.email}</p>
-                      )}
+                      ) : null}
                       <p
-                        className={`truncate font-mono text-xs text-ink-500 ${user.email ? "mt-0.5" : "text-sm font-medium text-ink-900"}`}
+                        className={`truncate font-mono text-xs text-ink-500 ${user.username || user.email ? "mt-0.5" : "text-sm font-medium text-ink-900"}`}
                         title={user.suiAddress}
                       >
-                        {user.email ? shortHash(user.suiAddress, 8) : shortHash(user.suiAddress, 10)}
+                        {shortHash(user.suiAddress, user.username || user.email ? 8 : 10)}
                       </p>
                       <div className="mt-1.5 flex items-center gap-2">
                         <Badge tone={user.role === "ADMIN" ? "blue" : "neutral"}>
@@ -132,6 +134,14 @@ export default function NavBar() {
                         <span className="text-[11px] text-ink-400">user id {user.id}</span>
                       </div>
                     </div>
+                    <Link
+                      href="/account"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-ink-700 transition-colors hover:bg-ink-50"
+                    >
+                      <SettingsIcon className="text-base text-ink-400" />
+                      Account settings
+                    </Link>
                     <button
                       role="menuitem"
                       onClick={logout}

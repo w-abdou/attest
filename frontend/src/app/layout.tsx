@@ -4,6 +4,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ToastProvider } from "@/components/ui/Toast";
 import WalletProvider from "@/components/sui/WalletProvider";
 import NavBar from "@/components/NavBar";
+import OnboardingGate from "@/components/OnboardingGate";
 
 export const metadata: Metadata = {
   title: { default: "Attest", template: "%s · Attest" },
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
               <NavBar />
               <main id="main" className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-                {children}
+                <OnboardingGate>{children}</OnboardingGate>
               </main>
             </ToastProvider>
           </WalletProvider>

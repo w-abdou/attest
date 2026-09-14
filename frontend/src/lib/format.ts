@@ -38,18 +38,23 @@ export function shortHash(hash: string, edge = 10): string {
 }
 
 /**
- * Accounts are wallet-native and may have no email (zkLogin) or, on paper, no
- * address (a legacy pre-migration row) — this always returns something to show.
- * Prefers email since it reads better in a list; falls back to a shortened
- * address, then a plain placeholder.
+ * Every account has a username once onboarding completes, so this is what
+ * almost every caller sees in practice — but it stays defensive for the brief
+ * window between a brand-new account's first login and choosing one (or a
+ * legacy pre-migration row), when it may still be null: falls back to email,
+ * then a shortened address, then a plain placeholder.
  */
-export function displayIdentity(email: string | null, suiAddress: string | null): string {
+export function displayIdentity(
+  username: string | null, email: string | null, suiAddress: string | null,
+): string {
+  if (username) return `@${username}`;
   if (email) return email;
   if (suiAddress) return shortHash(suiAddress, 6);
   return "Unknown user";
 }
 
 export function initials(identity: string): string {
+  if (identity.startsWith("@")) return identity.slice(1, 3).toUpperCase();
   if (identity.startsWith("0x")) return identity.slice(2, 4).toUpperCase();
   const name = identity.split("@")[0] ?? identity;
   const parts = name.split(/[._-]+/).filter(Boolean);

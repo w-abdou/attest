@@ -97,7 +97,7 @@ function DashboardContent() {
     <div className="animate-fade-in">
       <PageHeader
         title={`Welcome back`}
-        description={user ? displayIdentity(user.email, user.suiAddress) : undefined}
+        description={user ? displayIdentity(user.username, user.email, user.suiAddress) : undefined}
         action={<LinkButton href="/teams" size="sm" icon={<PlusIcon />}>New team</LinkButton>}
       />
 

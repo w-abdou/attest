@@ -45,15 +45,31 @@ public class Document {
     @Column(nullable = true)
     private String walrusBlobObjectId;
 
-    // Base64 raw AES-256-GCM key, present only when the client encrypted the
-    // blob before uploading it (nullable — slice A / unencrypted Walrus
-    // documents, and all LOCAL documents, leave this null). This is a
-    // deliberately simple, locally-managed key for now: any team member who
-    // can already read this document's metadata can decrypt it. There is no
-    // per-signer access control yet — that requires Seal (on-chain-gated key
-    // distribution), a later slice. See docs/security-assessment.md.
+    // Base64 raw AES-256-GCM key, present only for a document encrypted under
+    // the older locally-managed-key scheme (nullable — unencrypted Walrus
+    // documents, Seal-encrypted documents, and all LOCAL documents leave this
+    // null). Kept only for backward compatibility with documents encrypted
+    // before Seal landed; every new upload uses Seal instead. See
+    // docs/security-assessment.md "Seal access control".
     @Column(nullable = true)
     private String encryptionKeyBase64;
+
+    // Whether this document's Walrus ciphertext is Seal-protected (the
+    // decryption key is gated by the on-chain seal_approve policy, not
+    // handed out to anyone who can read this row). Null/false for LOCAL
+    // documents, unencrypted Walrus documents, and documents still on the
+    // older local-AES scheme (encryptionKeyBase64 set instead).
+    @Column(nullable = true)
+    private Boolean sealEncrypted;
+
+    // The Seal identity (hex, see lib/sealId.ts) this document's ciphertext
+    // was encrypted under — set at upload time for a Seal-encrypted document,
+    // and (arbitrarily, since it's never read back) at registration time
+    // otherwise, since register_document's document_id argument is always
+    // required. Nullable only because it doesn't exist before either of
+    // those happens.
+    @Column(nullable = true)
+    private String sealIdHex;
 
     @Column(nullable = false)
     private Long ownerId;

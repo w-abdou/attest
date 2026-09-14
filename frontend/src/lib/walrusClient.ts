@@ -1,12 +1,6 @@
 import { WalrusClient } from "@mysten/walrus";
-import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-
-// Same testnet full-node gRPC endpoint dAppKit uses (see lib/dappKit.ts) —
-// Walrus operations don't go through the connected wallet, so this is a
-// separate, unauthenticated client purely for talking to the Walrus/Sui
-// network directly.
-const GRPC_URL = "https://fullnode.testnet.sui.io:443";
+import { getSuiReadClient } from "@/lib/suiReadClient";
 
 // Walrus testnet has ~100 independent storage nodes; writing directly to each
 // of them requires the caller to open a connection to every one, which plenty
@@ -35,20 +29,12 @@ export function isWalrusConfigured(): boolean {
     return Boolean(process.env.NEXT_PUBLIC_WALRUS_SIGNER_SECRET_KEY);
 }
 
-let cachedSuiClient: SuiGrpcClient | null = null;
-function getSuiClient(): SuiGrpcClient {
-    if (!cachedSuiClient) {
-        cachedSuiClient = new SuiGrpcClient({ network: "testnet", baseUrl: GRPC_URL });
-    }
-    return cachedSuiClient;
-}
-
 let cachedWalrusClient: WalrusClient | null = null;
 function getWalrusClient(): WalrusClient {
     if (!cachedWalrusClient) {
         cachedWalrusClient = new WalrusClient({
             network: "testnet",
-            suiClient: getSuiClient(),
+            suiClient: getSuiReadClient(),
             uploadRelay: {
                 host: UPLOAD_RELAY_HOST,
                 // Small, fixed cap in MIST on what the relay's tip can cost us per

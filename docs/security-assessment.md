@@ -359,14 +359,79 @@ request for the specific requester and the specific document.
   `seal_approve` was dry-run (simulated, not committed) as the document's
   admin address and confirmed to succeed.
 
-The Seal client integration itself (encrypting/decrypting via
-`@mysten/seal`, replacing the local-AES key flow in `walrusDocuments.ts`) is
-a separate, later slice — see the next section once it lands.
+### The Seal client (`frontend/src/lib/sealClient.ts`, `walrusDocuments.ts`)
+
+- **Encryption**: `SealClient.encrypt({ threshold: 2, packageId: ATTEST_PACKAGE_ID, id: sealIdHex, data: plaintext })`
+  produces ciphertext with no raw key ever leaving the function — the
+  symmetric key `encrypt()` also returns is deliberately discarded, never
+  sent to the backend or stored anywhere. `sealIdHex` (`lib/sealId.ts`) is a
+  fresh random 16-byte value generated client-side at upload time — not
+  derived from Attest's document id — because it has to be chosen before the
+  document is ever registered on-chain (Seal encryption needs no on-chain
+  object) and, once chosen, can never change without making the ciphertext
+  permanently undecryptable. It's sent to the backend and stored on the
+  Document row (`sealIdHex` column) so it can be carried into
+  `register_document` later and reused verbatim for every decrypt request —
+  never regenerated.
+- **Decryption**: requires a `SessionKey` bound to the requester's own Sui
+  address, created client-side and proven by having the *connected wallet*
+  sign a personal message (`SessionKey.getPersonalMessage()` /
+  `dAppKit.signPersonalMessage()` / `sessionKey.setPersonalMessageSignature()`)
+  — not a raw keypair, unlike the dedicated app-managed signer Walrus itself
+  needs (see the previous section) — because Seal's SessionKey supports an
+  optional `signer`, and a personal-message signature is exactly the
+  wallet-standard feature every extension wallet already supports. The
+  decrypt call then builds a transaction-kind-only PTB
+  (`tx.build({ onlyTransactionKind: true })`) calling `seal_approve(id, proof)`
+  — never signed, never executed, only evaluated by each key server via its
+  own dry-run — and passes it to `SealClient.decrypt({ data, sessionKey, txBytes })`.
+  Two independent testnet key servers are configured with `threshold: 2`
+  (both must agree) — the same servers and threshold currently published in
+  Sui's own Seal docs (docs.sui.io/sui-stack/seal/using-seal).
+- **A document that is Seal-encrypted but not yet registered on-chain cannot
+  be downloaded or verified at all** — the frontend checks
+  `sealEncrypted && !onchainObjectId` up front and disables those actions
+  with an explanatory message, rather than letting the request reach Seal's
+  key servers and fail there with a less legible error.
+- **`Document.sealEncrypted`** (nullable boolean) distinguishes a
+  Seal-protected document from the older locally-managed-key scheme
+  (`encryptionKeyBase64` still set, kept only for documents encrypted before
+  this slice — `clientCrypto.ts`'s `decryptBytes` still exists for reading
+  those back; nothing encrypts with it anymore) and from an unencrypted
+  Walrus document (neither field set). `documentHash` is unaffected by any of
+  this — it is always the SHA-256 of the plaintext, computed client-side
+  before any encryption, exactly as in slices A and B.
+- **A `SealClient` caches released key shares per Seal identity, not per
+  requester.** This matters only for anyone embedding this SDK, not for
+  Attest's actual security: a browser tab only ever has one instance handling
+  one user's own requests, so there is no cross-user sharing of cached keys
+  in practice — but it means never reusing a single `SealClient` instance to
+  decrypt the same id on behalf of two different identities within one
+  process, or a formerly-authorized decrypt's cached result can outlive the
+  authorization check for a different, unauthorized caller. (Found and
+  confirmed while writing the verification below: an ad-hoc test script that
+  reused one client for both an authorized and an unauthorized attempt
+  appeared to let the unauthorized one through; a fresh client per attempt —
+  the realistic per-user shape — showed the correct behavior.)
+- **The authorization boundary was verified against live Seal testnet
+  infrastructure, not simulated locally**: a real document was registered
+  on-chain with no required signers (admin-only authorization), its
+  plaintext encrypted with real Seal key servers, and the decryption key
+  requested back twice — once as the document's own admin address (a real,
+  wallet-equivalent session key, decrypt succeeded, plaintext matched the
+  original exactly) and once as a completely unrelated, freshly-generated
+  address with its own validly-signed session key (decrypt failed with
+  `NoAccessError`, Seal's key servers refusing to release a share). This is
+  the actual security-critical behavior the whole slice exists to provide,
+  checked against the real service end-to-end, not assumed from the Move
+  unit tests alone.
 
 ## Test evidence
 
 Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, the sixth-request rate-limit boundary, and the Walrus-backed upload/amend/verify-hash paths (metadata recorded with no storage-service call made, hash-format/content-type rejection, viewer-cannot-upload, signer carryover on amend). A live upload → download round-trip against real Walrus testnet infrastructure (via the public upload relay and aggregator) was run manually and confirmed byte-for-byte and hash-identical — this is not part of `./mvnw test`/`npm run build` and does not re-run automatically.
 
 Run `sui move test` in `move/attest_docs`. The current suite (11 tests) covers registration, signing, and policy-change acceptance as before, plus `seal_approve`'s authorization boundary specifically: admin can decrypt with no signers assigned, a required signer can decrypt, an outsider is rejected, a signer removed by a policy change loses access, a mismatched id is rejected, and a revoked document cannot be decrypted even by its admin. After the redeploy that added `document_id`/`seal_approve`, `register_document` and `sign` were both re-run as real (committed) transactions against the new package id on testnet and succeeded, and `seal_approve` was independently dry-run (simulated, never committed) as the document's admin address and confirmed to succeed — all outside `sui move test` and not re-run automatically.
+
+Separately, and specifically for the Seal client integration, a live end-to-end run against real Seal testnet key servers (not a simulation, not the Move unit tests) encrypted real data, registered a real on-chain policy object, and requested the decryption key back as two different addresses — the authorized admin (succeeded, correct plaintext) and an unrelated unauthorized address (failed with `NoAccessError`). This is also outside `sui move test`/`./mvnw test`/`npm run build` and does not re-run automatically.
 
 A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.

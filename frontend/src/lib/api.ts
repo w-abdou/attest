@@ -41,11 +41,17 @@ export interface DocumentResponse {
   storageBackend: "LOCAL" | "WALRUS";
   walrusBlobId: string | null;
   walrusBlobObjectId: string | null;
-  // Present only for a client-encrypted Walrus document (slice B) — null for
-  // an unencrypted Walrus document (slice A) or any LOCAL document. This is a
-  // locally-managed key, not real per-signer access control — see
-  // docs/security-assessment.md "Walrus decentralized storage".
+  // Present only for a document still on the older locally-managed-key
+  // scheme (pre-Seal) — null once sealEncrypted takes over. See
+  // docs/security-assessment.md "Seal access control".
   encryptionKeyBase64: string | null;
+  // True when the blob is Seal-protected: the decryption key is gated by the
+  // on-chain seal_approve policy, never handed back by this API at all.
+  sealEncrypted: boolean;
+  // The Seal identity (hex) this document was encrypted under, if any —
+  // needed to build both the seal_approve call (decrypt) and the
+  // register_document call (on-chain registration).
+  sealIdHex: string | null;
   createdAt: string;
 }
 
@@ -61,6 +67,8 @@ export interface WalrusUploadRequest {
   walrusBlobObjectId: string | null;
   size: number;
   encryptionKeyBase64: string | null;
+  sealEncrypted: boolean;
+  sealIdHex: string | null;
 }
 export interface AuditLogResponse { id: number; documentId: number; action: string; performedBy: number; timestamp: string; detail: string | null; }
 export interface VerifyResponse { documentId: number; verified: boolean; result: string; }

@@ -2,6 +2,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { fromHex } from "@mysten/sui/utils";
 import { dAppKit } from "@/lib/dappKit";
 import { TARGET, ATTEST_PACKAGE_ID, ATTEST_NETWORK } from "@/lib/attestContract";
+import { sealIdHex } from "@/lib/sealId";
 
 export interface RegisterResult {
     objectId: string;
@@ -11,17 +12,22 @@ export interface RegisterResult {
 }
 
 export async function registerDocumentOnChain(
+    documentId: number,
     envelopeHashHex: string,
     signerAddresses: string[],
 ): Promise<RegisterResult> {
     // The Move function wants vector<u8>. Convert the hex envelope hash to bytes.
     const hex = envelopeHashHex.startsWith("0x") ? envelopeHashHex.slice(2) : envelopeHashHex;
     const envelopeBytes = fromHex(hex);
+    // Same identity this document was (or will be) Seal-encrypted under —
+    // stored on-chain so seal_approve can check requests against it later.
+    const documentIdBytes = fromHex(sealIdHex(documentId));
 
     const tx = new Transaction();
     tx.moveCall({
         target: TARGET.registerDocument,
         arguments: [
+            tx.pure.vector("u8", Array.from(documentIdBytes)),
             tx.pure.vector("u8", Array.from(envelopeBytes)),
             tx.pure.vector("address", signerAddresses),
         ],

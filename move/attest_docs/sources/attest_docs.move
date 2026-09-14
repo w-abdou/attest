@@ -1,4 +1,5 @@
-/// Attest — on-chain document signing proof (Week 2 / 2.5).
+/// Attest — on-chain document signing proof (Week 2 / 2.5) and Seal access
+/// control (Week 2 / 2.3, final slice).
 ///
 /// Each document is a shared `DocumentProof` object anchoring the envelopeHash
 /// that the Attest backend computed off-chain. Assigned signers submit
@@ -9,6 +10,19 @@
 /// replaced. A signature therefore never survives a policy change — matching the
 /// Week 2 acceptance check (swap the required CEO, and the earlier Legal
 /// signature no longer counts).
+///
+/// `seal_approve` is this same object's second job: it is the Seal access
+/// policy that gates who can obtain the decryption key for the document's
+/// Walrus-stored ciphertext. A document's Seal identity (`document_id`) is
+/// chosen client-side at upload time (before the document is ever registered
+/// on-chain) and is carried into `register_document` unchanged — Seal
+/// encryption itself needs no on-chain object to exist yet, but decryption
+/// does: until a document is registered, its `DocumentProof` does not exist,
+/// there is nothing for `seal_approve` to check, and no one (not even the
+/// uploader) can decrypt it. See docs/security-assessment.md "Seal access
+/// control" for the full design rationale and its limits (identity- and
+/// signer-based authorization only — there is no on-chain team roster, so
+/// "team member" access control would require a much larger, separate change).
 module attest_docs::attest_docs;
 
 use sui::event;
@@ -20,6 +34,8 @@ const ENotAdmin: u64 = 0;
 const ENotRequiredSigner: u64 = 1;
 const EAlreadySigned: u64 = 2;
 const EDocumentRevoked: u64 = 3;
+const ENotAuthorizedForDecryption: u64 = 4;
+const EWrongSealId: u64 = 5;
 
 // === Status constants ===
 
@@ -32,6 +48,11 @@ const STATUS_REVOKED: u8 = 2;
 /// A shared object representing one document's on-chain signing state.
 public struct DocumentProof has key {
     id: UID,
+    /// The Seal identity this document's ciphertext was encrypted under —
+    /// chosen client-side at upload time (before this object even exists),
+    /// and fixed for this document's lifetime. `seal_approve` only releases a
+    /// decryption key for the exact id it was asked about if it matches this.
+    document_id: vector<u8>,
     /// The envelope hash computed off-chain by the Attest backend (the anchor).
     envelope_hash: vector<u8>,
     /// Sui addresses that must sign this document.
@@ -40,7 +61,8 @@ public struct DocumentProof has key {
     signatures: VecMap<address, bool>,
     /// PENDING / FULLY_SIGNED / REVOKED.
     status: u8,
-    /// The address allowed to change the policy or revoke.
+    /// The address allowed to change the policy or revoke. Also authorized to
+    /// decrypt via seal_approve, even before any signers are assigned.
     admin: address,
 }
 
@@ -72,13 +94,19 @@ public struct DocumentRevoked has copy, drop {
 
 /// Register a new document on-chain. The caller becomes its admin.
 /// Creates a shared DocumentProof and emits DocumentRegistered.
+///
+/// `document_id` is the Seal identity the browser already encrypted this
+/// document's Walrus blob under (see module docs) — it is opaque to this
+/// module beyond being stored verbatim and compared against in seal_approve.
 public fun register_document(
+    document_id: vector<u8>,
     envelope_hash: vector<u8>,
     required_signers: vector<address>,
     ctx: &mut TxContext,
 ) {
     let proof = DocumentProof {
         id: object::new(ctx),
+        document_id,
         envelope_hash,
         required_signers,
         signatures: vec_map::empty(),
@@ -151,10 +179,34 @@ public fun revoke_document(proof: &mut DocumentProof, ctx: &TxContext) {
     event::emit(DocumentRevoked { document_id: object::id(proof) });
 }
 
+// === Seal access control ===
+
+/// Seal calls this (via a dry-run transaction, never actually executed or
+/// committed) whenever some address asks a key server to release the
+/// decryption key for `id`. It must abort — not return false — to deny
+/// access, and must never modify state or depend on non-deterministic
+/// input (see the Seal docs' `seal_approve*` guidelines).
+///
+/// Authorization: the document's admin (the uploader) or any of its current
+/// required signers may decrypt. There is no on-chain team roster in this
+/// package, so broader "team member" access is not something this policy can
+/// express — only identities that already appear on this exact DocumentProof.
+public(package) entry fun seal_approve(id: vector<u8>, proof: &DocumentProof, ctx: &TxContext) {
+    assert!(id == proof.document_id, EWrongSealId);
+    assert!(proof.status != STATUS_REVOKED, EDocumentRevoked);
+
+    let caller = ctx.sender();
+    assert!(caller == proof.admin || is_required_signer(proof, caller), ENotAuthorizedForDecryption);
+}
+
 // === View functions ===
 
 public fun status(proof: &DocumentProof): u8 {
     proof.status
+}
+
+public fun document_id(proof: &DocumentProof): vector<u8> {
+    proof.document_id
 }
 
 public fun envelope_hash(proof: &DocumentProof): vector<u8> {

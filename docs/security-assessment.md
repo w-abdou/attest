@@ -286,6 +286,87 @@ anyone who knows its blob id. A few things worth being explicit about:
   column, so unlike `storage_reference` this needs no manual migration on an
   existing database.
 
+## Seal access control (milestone 2.3, final slice)
+
+Documents encrypted client-side for Walrus (the previous section) used a
+locally-managed AES-256-GCM key: anyone who obtained that key — anyone who
+could read the document's metadata at all, since the backend handed the key
+back to any authorized viewer — could decrypt it. There was no real
+authorization on the *decryption key itself*, only on who could read the
+Document row. Seal replaces that: the decryption key is never generated or
+stored by Attest at all — it is derived on demand by Seal key servers, which
+only release key shares if an on-chain Move policy function approves the
+request for the specific requester and the specific document.
+
+### The Move policy (`move/attest_docs`)
+
+- **`DocumentProof` gained a `document_id: vector<u8>` field.** This is the
+  Seal "identity" the document's Walrus ciphertext was encrypted under —
+  chosen client-side, deterministically, as an 8-byte big-endian encoding of
+  Attest's own numeric document id (`frontend/src/lib/sealId.ts`). It has to
+  be chosen *before* the document is ever registered on-chain, because Seal
+  encryption itself needs no on-chain object to exist yet — only decryption
+  does. `register_document` now takes this as its first argument and stores
+  it verbatim; nothing else in the module interprets it.
+- **`seal_approve(id: vector<u8>, proof: &DocumentProof, ctx: &TxContext)`**
+  is the actual access-control policy, called by Seal key servers via a
+  dry-run transaction (never committed, never modifies state) whenever some
+  address requests the decryption key for `id`. It aborts (denying the key)
+  unless: `id` matches this proof's `document_id` (binding the check to the
+  exact document — without this, any other document's proof could be used to
+  unlock this one's ciphertext), the document isn't revoked, and the caller
+  (`ctx.sender()`, i.e. the address the requester's session key attests to)
+  is either the document's admin (the uploader) or one of its *current*
+  required signers.
+- **This is identity/signer-based authorization, not team-based.** The
+  original request describes "a member of the document's team" as one
+  possible authorization rule; that isn't something this Move module can
+  express, because Attest's teams and memberships are an off-chain Postgres
+  concept with no on-chain representation at all — `seal_approve` can only
+  read what's actually on the `DocumentProof` object. Making "team member" an
+  on-chain-checkable fact would mean either putting the whole team roster
+  on-chain (a much larger, separate change with its own sync/consistency
+  concerns) or trusting an oracle-like off-chain input inside `seal_approve`,
+  which the Seal docs explicitly warn against (policies must be deterministic
+  and side-effect free). So this slice authorizes exactly "admin or required
+  signer" — a strict subset of "team member" — and that limitation is
+  deliberate, not an oversight.
+- **A signer removed by a later policy change loses decrypt access
+  immediately.** `seal_approve` reads the *current* `required_signers`, the
+  same field `update_policy` can replace — there's no stale/cached
+  authorization; this was written and tested explicitly
+  (`removed_signer_loses_decrypt_access_after_policy_change`).
+- **A document that has never been registered on-chain cannot be decrypted by
+  anyone, including its own uploader.** Its `DocumentProof` doesn't exist yet,
+  so there is nothing for `seal_approve` to check. The document sits
+  encrypted on Walrus, inert, until someone registers it — a real, deliberate
+  gap the frontend will need to surface clearly once the Seal client itself
+  is wired in, not a bug.
+- **Redeploying changed the package id**, from
+  `eb00a0e141a71b8a3b18f171d51a7f13ffcfa0b7752310552e4b434d30ab9ab3` to
+  `5ab9e52d5026189cfe94735896d6cb7b49748fceb78dc882060b724e2bafa3b7`
+  (`frontend/src/lib/attestContract.ts`). Every `DocumentProof` created under
+  the old package id is now unreachable from the new package's functions —
+  any document registered before this redeploy needs to be re-registered
+  (the app already treats registration as idempotent per document/version, so
+  this just means clicking "Register on-chain" again) before Seal decryption
+  or any other new-package call works for it. This is an inherent cost of a
+  Move package upgrade that doesn't preserve object compatibility, not
+  something specific to Seal.
+- **Verified against real testnet, not just Move unit tests**: after
+  redeploying, `register_document` and `sign` were both re-run end-to-end
+  against the new package id (real transactions, both succeeded), and
+  `seal_approve` was dry-run (simulated, not committed) as the document's
+  admin address and confirmed to succeed.
+
+The Seal client integration itself (encrypting/decrypting via
+`@mysten/seal`, replacing the local-AES key flow in `walrusDocuments.ts`) is
+a separate, later slice — see the next section once it lands.
+
 ## Test evidence
 
-Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, the sixth-request rate-limit boundary, and the Walrus-backed upload/amend/verify-hash paths (metadata recorded with no storage-service call made, hash-format/content-type rejection, viewer-cannot-upload, signer carryover on amend). A live upload → download round-trip against real Walrus testnet infrastructure (via the public upload relay and aggregator) was run manually and confirmed byte-for-byte and hash-identical — this is not part of `./mvnw test`/`npm run build` and does not re-run automatically. A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.
+Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, the sixth-request rate-limit boundary, and the Walrus-backed upload/amend/verify-hash paths (metadata recorded with no storage-service call made, hash-format/content-type rejection, viewer-cannot-upload, signer carryover on amend). A live upload → download round-trip against real Walrus testnet infrastructure (via the public upload relay and aggregator) was run manually and confirmed byte-for-byte and hash-identical — this is not part of `./mvnw test`/`npm run build` and does not re-run automatically.
+
+Run `sui move test` in `move/attest_docs`. The current suite (11 tests) covers registration, signing, and policy-change acceptance as before, plus `seal_approve`'s authorization boundary specifically: admin can decrypt with no signers assigned, a required signer can decrypt, an outsider is rejected, a signer removed by a policy change loses access, a mismatched id is rejected, and a revoked document cannot be decrypted even by its admin. After the redeploy that added `document_id`/`seal_approve`, `register_document` and `sign` were both re-run as real (committed) transactions against the new package id on testnet and succeeded, and `seal_approve` was independently dry-run (simulated, never committed) as the document's admin address and confirmed to succeed — all outside `sui move test` and not re-run automatically.
+
+A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.

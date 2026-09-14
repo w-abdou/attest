@@ -30,7 +30,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import {
-  AlertIcon, CheckCircleIcon, CloudIcon, DownloadIcon, HistoryIcon, LayersIcon, PenIcon,
+  AlertIcon, CheckCircleIcon, CloudIcon, DownloadIcon, HistoryIcon, LayersIcon, LockIcon, PenIcon,
   ShieldIcon, UploadIcon, UsersIcon,
 } from "@/components/ui/Icons";
 import { displayIdentity, formatDateTime, shortHash, timeAgo } from "@/lib/format";
@@ -296,6 +296,9 @@ function DocumentDetailContent() {
           {doc.storageBackend === "WALRUS" && (
               <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3">
                 <Badge tone="blue"><CloudIcon className="text-xs" /> Stored on Walrus</Badge>
+                {doc.encryptionKeyBase64 && (
+                    <Badge tone="green"><LockIcon className="text-xs" /> Encrypted</Badge>
+                )}
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-500" title={doc.walrusBlobId ?? undefined}>
                   blob {shortHash(doc.walrusBlobId ?? "", 10)}
                 </span>

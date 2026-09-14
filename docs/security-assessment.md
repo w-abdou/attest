@@ -160,7 +160,7 @@ things worth being explicit about:
   Adding a team member by username, email, or address all resolve to the same
   underlying Sui address before anything on-chain happens.
 
-## Walrus decentralized storage (slice A: unencrypted blob store/retrieve)
+## Walrus decentralized storage (slices A + B: blob store/retrieve, client-side encryption)
 
 Documents can now be stored on Walrus instead of the local disk, client-direct:
 the browser uploads the PDF straight to Walrus and only tells the backend
@@ -249,6 +249,42 @@ ALTER TABLE documents ALTER COLUMN storage_reference DROP NOT NULL;
   `DataIntegrityViolationException` when the row is inserted with a null
   `storage_reference`. A brand-new database does not need this — the column is
   only ever created nullable going forward.
+
+### Slice B: client-side encryption
+
+The browser now encrypts a document with AES-256-GCM (Web Crypto /
+`SubtleCrypto`, 256-bit key, fresh random 96-bit IV per encryption, IV
+prepended to the ciphertext) *before* uploading it to Walrus — Walrus itself
+has no confidentiality of its own, so an unencrypted blob is world-readable by
+anyone who knows its blob id. A few things worth being explicit about:
+
+- **This is a deliberately simple, locally-managed key — not real access
+  control.** The raw key is base64-encoded and handed to the backend alongside
+  the other upload metadata, stored in `documents.encryption_key_base64`, and
+  returned in `DocumentResponse` to any caller who can already read that
+  document (i.e. gated by the exact same team-membership check as everything
+  else on that DTO — see `authorizeTeamMember`). That means **any team member
+  who can view the document can decrypt it**, same as a shared folder. There
+  is no per-signer, per-role, or time-limited access control on the key itself
+  yet. Real access control requires Seal (on-chain-gated key distribution,
+  where a Move contract — not team membership in this database — decides who
+  gets the decryption key), which is an explicitly separate, later slice.
+- **`documentHash` is still computed over the plaintext, before encryption,**
+  exactly as in slice A — encrypting the bytes changes what gets uploaded to
+  Walrus, not what gets hashed for integrity/envelope purposes. Verifying a
+  document means: fetch the ciphertext, decrypt with the recorded key, hash
+  the *decrypted* plaintext, compare. `DocumentService.verifyHash` and
+  `uploadWalrus`/`amendWalrus` are unchanged from slice A in this respect —
+  they only ever see a hash, never bytes, so they cannot tell (and don't need
+  to know) whether the blob was encrypted.
+- **The IV is prepended to the ciphertext, not stored separately.** A fresh IV
+  per encryption is generated client-side and written as the first 12 bytes
+  of what actually gets uploaded to Walrus; decryption reads it back off the
+  front. Only the raw key needs to travel with the document's other metadata.
+- **`encryptionKeyBase64` is null for slice A documents (unencrypted Walrus)
+  and for every `LOCAL` document** — it is an entirely new, always-nullable
+  column, so unlike `storage_reference` this needs no manual migration on an
+  existing database.
 
 ## Test evidence
 

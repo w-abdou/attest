@@ -21,5 +21,10 @@ public record WalrusUploadRequest(
         String walrusBlobId,
         String walrusBlobObjectId,
         @Positive(message = "size must be positive")
-        long size
+        long size,
+        // Base64 raw AES-256-GCM key, only present when the browser encrypted
+        // the blob before uploading it. Null means the blob is stored as
+        // plaintext on Walrus (slice A behavior) — still a deliberate choice,
+        // not a missing field.
+        String encryptionKeyBase64
 ) {}

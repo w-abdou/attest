@@ -34,7 +34,7 @@ function AdminContent() {
     try {
       const updated = await api.updateUserRole(Number(userId), role);
       setResult(updated);
-      toast.success(`${displayIdentity(updated.email, updated.suiAddress)} is now ${updated.role}.`);
+      toast.success(`${displayIdentity(updated.username, updated.email, updated.suiAddress)} is now ${updated.role}.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not update that role.");
     } finally {
@@ -86,7 +86,7 @@ function AdminContent() {
 
             {result && (
               <Alert tone="success" className="mt-4" title="Role updated">
-                {displayIdentity(result.email, result.suiAddress)} (user id {result.id}) is now {result.role}.
+                {displayIdentity(result.username, result.email, result.suiAddress)} (user id {result.id}) is now {result.role}.
               </Alert>
             )}
           </CardBody>

@@ -8,6 +8,7 @@ export type WalletKind = "slush" | "google";
 
 interface AuthUser {
     id: number;
+    username: string | null;
     email: string | null;
     suiAddress: string;
     role: Role;
@@ -21,8 +22,20 @@ interface AuthContextValue {
      * connect the chosen wallet, have it sign a fresh server-issued challenge,
      * and hand the signature to the backend to verify. Throws on any step's
      * failure — the caller decides how to present that.
+     *
+     * A brand-new account comes back with username: null — OnboardingGate
+     * (in the root layout) is what actually forces the "choose your username"
+     * step before anything else, using exactly this field.
      */
     loginWithWallet: (kind: WalletKind) => Promise<void>;
+    /**
+     * Patches the cached user's username after the onboarding step or the
+     * account settings page successfully calls the backend — without this,
+     * the change would only show up after a full page reload (or logout and
+     * back in), since the cached user is otherwise only ever written by
+     * loginWithWallet.
+     */
+    setLocalUsername: (username: string) => void;
     logout: () => void;
 }
 
@@ -132,10 +145,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const authUser: AuthUser = {
-            id: result.id, email: result.email, suiAddress: result.suiAddress, role: result.role,
+            id: result.id, username: result.username, email: result.email,
+            suiAddress: result.suiAddress, role: result.role,
         };
         localStorage.setItem(TOKEN_KEY, result.token);
         localStorage.setItem(USER_KEY, JSON.stringify(authUser));
+        emit();
+    }, []);
+
+    const setLocalUsername = useCallback((username: string) => {
+        const current = getUserSnapshot();
+        if (!current) return; // Shouldn't happen — this is only ever called while logged in.
+        const updated: AuthUser = { ...current, username };
+        localStorage.setItem(USER_KEY, JSON.stringify(updated));
         emit();
     }, []);
 
@@ -156,8 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const value = useMemo<AuthContextValue>(
-        () => ({ user, loading: !hydrated, loginWithWallet, logout }),
-        [user, hydrated, loginWithWallet, logout],
+        () => ({ user, loading: !hydrated, loginWithWallet, setLocalUsername, logout }),
+        [user, hydrated, loginWithWallet, setLocalUsername, logout],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -347,10 +347,10 @@ function DocumentDetailContent() {
                     <ul className="divide-y divide-ink-200 rounded-lg border border-ink-200">
                       {signers.map((signer) => (
                           <li key={signer.signerId} className="flex items-center gap-3 px-3.5 py-2.5">
-                            <Avatar identity={displayIdentity(signer.email, signer.suiAddress)} size="sm" />
+                            <Avatar identity={displayIdentity(signer.username, signer.email, signer.suiAddress)} size="sm" />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm text-ink-900">
-                                {displayIdentity(signer.email, signer.suiAddress)}
+                                {displayIdentity(signer.username, signer.email, signer.suiAddress)}
                                 {signer.signerId === user?.id && (
                                     <span className="ml-1.5 text-xs text-ink-400">(you)</span>
                                 )}
@@ -420,9 +420,9 @@ function DocumentDetailContent() {
                                     onChange={() => toggleSigner(member.userId)}
                                     className="h-4 w-4 shrink-0 accent-sui-600"
                                 />
-                                <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
+                                <Avatar identity={displayIdentity(member.username, member.email, member.suiAddress)} size="sm" />
                                 <span className="min-w-0 flex-1 truncate text-xs text-ink-800">
-                            {displayIdentity(member.email, member.suiAddress)}
+                            {displayIdentity(member.username, member.email, member.suiAddress)}
                           </span>
                               </label>
                           );

@@ -49,7 +49,7 @@ export default function OnChainRegisterButton({ doc, signers, onRegistered }: Pr
       // that predate the migration and never linked one.
       setMsg({
         tone: "err",
-        text: `These signers have no Sui address on file: ${signersWithoutAddress.map((s) => s.email ?? `user #${s.signerId}`).join(", ")}`,
+        text: `These signers have no Sui address on file: ${signersWithoutAddress.map((s) => s.username ? `@${s.username}` : s.email ?? `user #${s.signerId}`).join(", ")}`,
       });
       return;
     }

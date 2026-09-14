@@ -88,6 +88,9 @@ public class DocumentService {
         if (!SHA256_HEX.matcher(req.documentHash()).matches()) {
             throw new InvalidFileException("documentHash must be a 64-character lowercase hex SHA-256 digest");
         }
+        if (req.sealEncrypted() && (req.sealIdHex() == null || req.sealIdHex().isBlank())) {
+            throw new InvalidFileException("sealIdHex is required when sealEncrypted is true");
+        }
     }
 
     private void validateHash(String hash) {
@@ -154,6 +157,8 @@ public class DocumentService {
         doc.setWalrusBlobId(req.walrusBlobId());
         doc.setWalrusBlobObjectId(req.walrusBlobObjectId());
         doc.setEncryptionKeyBase64(req.encryptionKeyBase64());
+        doc.setSealEncrypted(req.sealEncrypted());
+        doc.setSealIdHex(req.sealIdHex());
         doc.setDocumentHash(req.documentHash());
         doc.setOwnerId(requesterId);
         doc.setTeamId(teamId);
@@ -311,6 +316,8 @@ public class DocumentService {
         newVersion.setWalrusBlobId(req.walrusBlobId());
         newVersion.setWalrusBlobObjectId(req.walrusBlobObjectId());
         newVersion.setEncryptionKeyBase64(req.encryptionKeyBase64());
+        newVersion.setSealEncrypted(req.sealEncrypted());
+        newVersion.setSealIdHex(req.sealIdHex());
         newVersion.setDocumentHash(req.documentHash());
         newVersion.setOwnerId(original.getOwnerId());
         newVersion.setTeamId(original.getTeamId());

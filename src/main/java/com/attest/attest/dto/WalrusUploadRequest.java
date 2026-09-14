@@ -22,9 +22,16 @@ public record WalrusUploadRequest(
         String walrusBlobObjectId,
         @Positive(message = "size must be positive")
         long size,
-        // Base64 raw AES-256-GCM key, only present when the browser encrypted
-        // the blob before uploading it. Null means the blob is stored as
-        // plaintext on Walrus (slice A behavior) — still a deliberate choice,
-        // not a missing field.
-        String encryptionKeyBase64
+        // Base64 raw AES-256-GCM key — only ever set by a client still using
+        // the older locally-managed-key scheme. New uploads leave this null
+        // and set sealEncrypted instead.
+        String encryptionKeyBase64,
+        // True when the blob was encrypted with Seal before upload (the
+        // decryption key is gated by the on-chain seal_approve policy, not
+        // stored anywhere). False/absent means either unencrypted (slice A)
+        // or the legacy local-AES scheme (encryptionKeyBase64 set instead).
+        boolean sealEncrypted,
+        // The Seal identity (hex) the blob was encrypted under. Required
+        // when sealEncrypted is true; ignored otherwise.
+        String sealIdHex
 ) {}

@@ -72,6 +72,10 @@ function DocumentDetailContent() {
   const canManageSigners = isUploader || isTeamAdmin;
   const myAssignment = signers.find((s) => s.signerId === user?.id);
   const signedCount = signers.filter((s) => s.signed).length;
+  // A Seal-encrypted document has no DocumentProof for seal_approve to check
+  // until it's registered on-chain — decryption is impossible until then,
+  // for anyone, including the uploader.
+  const sealNotYetDecryptable = !!doc?.sealEncrypted && !doc.onchainObjectId;
 
   const loadAll = useCallback(async () => {
     try {
@@ -296,19 +300,34 @@ function DocumentDetailContent() {
           {doc.storageBackend === "WALRUS" && (
               <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3">
                 <Badge tone="blue"><CloudIcon className="text-xs" /> Stored on Walrus</Badge>
-                {doc.encryptionKeyBase64 && (
-                    <Badge tone="green"><LockIcon className="text-xs" /> Encrypted</Badge>
-                )}
+                {doc.sealEncrypted ? (
+                    <Badge tone="green"><LockIcon className="text-xs" /> Encrypted (Seal)</Badge>
+                ) : doc.encryptionKeyBase64 ? (
+                    <Badge tone="green"><LockIcon className="text-xs" /> Encrypted (local key)</Badge>
+                ) : null}
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-500" title={doc.walrusBlobId ?? undefined}>
                   blob {shortHash(doc.walrusBlobId ?? "", 10)}
                 </span>
-                <Button size="sm" variant="secondary" loading={downloading} onClick={handleDownload} icon={<DownloadIcon />}>
+                <Button
+                    size="sm" variant="secondary" loading={downloading} onClick={handleDownload}
+                    disabled={sealNotYetDecryptable} icon={<DownloadIcon />}
+                >
                   Download
                 </Button>
-                <Button size="sm" variant="secondary" loading={checkingStoredBlob} onClick={handleVerifyStoredBlob} icon={<ShieldIcon />}>
+                <Button
+                    size="sm" variant="secondary" loading={checkingStoredBlob} onClick={handleVerifyStoredBlob}
+                    disabled={sealNotYetDecryptable} icon={<ShieldIcon />}
+                >
                   Verify stored copy
                 </Button>
               </div>
+          )}
+          {sealNotYetDecryptable && (
+              <Alert tone="info">
+                This document is Seal-encrypted but not yet registered on-chain — there is no
+                on-chain policy for Seal&apos;s key servers to check yet, so no one (not even the
+                uploader) can decrypt it. Register it on-chain below to enable download and verify.
+              </Alert>
           )}
         </div>
 

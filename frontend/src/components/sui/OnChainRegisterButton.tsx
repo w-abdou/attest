@@ -5,6 +5,7 @@ import { useCurrentAccount } from "@mysten/dapp-kit-react";
 import { registerDocumentOnChain } from "@/lib/onchainRegister";
 import * as api from "@/lib/api";
 import { ApiError, DocumentResponse, SignatureResponse } from "@/lib/api";
+import { generateSealIdHex } from "@/lib/sealId";
 
 interface Props {
   doc: DocumentResponse;
@@ -57,7 +58,12 @@ export default function OnChainRegisterButton({ doc, signers, onRegistered }: Pr
     setBusy(true);
     try {
       const addresses = signers.map((s) => s.suiAddress as string);
-      const result = await registerDocumentOnChain(doc.id, doc.envelopeHash as string, addresses);
+      // Seal-encrypted documents already have a sealIdHex, assigned at
+      // upload time — it MUST be reused verbatim, since it's already baked
+      // into the ciphertext. A non-Seal document has none yet; a fresh one
+      // generated here is fine, since nothing ever reads it back for those.
+      const documentIdHex = doc.sealIdHex ?? generateSealIdHex();
+      const result = await registerDocumentOnChain(documentIdHex, doc.envelopeHash as string, addresses);
       await api.recordOnchainRegistration(
         doc.id, result.objectId, result.txDigest, result.packageId, result.network,
       );

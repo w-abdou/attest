@@ -25,6 +25,10 @@ export interface UsernameAvailabilityResponse { available: boolean; reason: stri
 export interface TeamResponse { id: number; name: string; createdBy: number; createdAt: string; yourRole: TeamRole; }
 export interface TeamMemberResponse { userId: number; username: string | null; email: string | null; suiAddress: string | null; teamRole: TeamRole; }
 
+// storageBackend is "LOCAL" (stored on the backend's disk, the original
+// model) or "WALRUS" (stored client-direct on Walrus — the backend only ever
+// saw a hash and a blob id, never the file bytes). walrusBlobId/
+// walrusBlobObjectId are null for LOCAL documents.
 export interface DocumentResponse {
   id: number; filename: string; contentType: string;
   status: string; version: number;
@@ -33,7 +37,24 @@ export interface DocumentResponse {
   policyHash: string | null; envelopeHash: string | null;
   expiry: string | null; onchainObjectId: string | null;
   onchainPackageId: string | null; onchainNetwork: string | null;
-  onchainTxDigest: string | null; createdAt: string;
+  onchainTxDigest: string | null;
+  storageBackend: "LOCAL" | "WALRUS";
+  walrusBlobId: string | null;
+  walrusBlobObjectId: string | null;
+  createdAt: string;
+}
+
+// Sent after the browser has already put the (possibly encrypted) file on
+// Walrus directly — this is metadata only, never file bytes. documentHash is
+// the SHA-256 of the original plaintext, computed client-side before any
+// encryption.
+export interface WalrusUploadRequest {
+  filename: string;
+  contentType: string;
+  documentHash: string;
+  walrusBlobId: string;
+  walrusBlobObjectId: string | null;
+  size: number;
 }
 export interface AuditLogResponse { id: number; documentId: number; action: string; performedBy: number; timestamp: string; detail: string | null; }
 export interface VerifyResponse { documentId: number; verified: boolean; result: string; }
@@ -177,6 +198,15 @@ export async function uploadToTeam(teamId: number, file: File): Promise<Document
   });
   return handleResponse<DocumentResponse>(res);
 }
+// Metadata-only: the file itself already went straight to Walrus by the time
+// this is called — see lib/walrusDocuments.ts.
+export async function uploadToTeamWalrus(teamId: number, req: WalrusUploadRequest): Promise<DocumentResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/documents/team/${teamId}/walrus`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(req),
+  });
+  return handleResponse<DocumentResponse>(res);
+}
 export async function getDocument(id: number): Promise<DocumentResponse> {
   const res = await fetch(`${API_BASE_URL}/api/documents/${id}`, { headers: { ...authHeaders() } });
   return handleResponse<DocumentResponse>(res);
@@ -196,10 +226,27 @@ export async function verifyDocument(id: number, file: File): Promise<VerifyResp
   });
   return handleResponse<VerifyResponse>(res);
 }
+// For Walrus-backed documents: the browser has already hashed the candidate
+// file (or the blob it downloaded and decrypted) itself, so only the hash is
+// sent — never the file bytes.
+export async function verifyDocumentHash(id: number, documentHash: string): Promise<VerifyResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/documents/${id}/verify-hash`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ documentHash }),
+  });
+  return handleResponse<VerifyResponse>(res);
+}
 export async function amendDocument(id: number, file: File): Promise<DocumentResponse> {
   const formData = new FormData(); formData.append("file", file);
   const res = await fetch(`${API_BASE_URL}/api/documents/${id}/amend`, {
     method: "POST", headers: { ...authHeaders() }, body: formData,
+  });
+  return handleResponse<DocumentResponse>(res);
+}
+export async function amendDocumentWalrus(id: number, req: WalrusUploadRequest): Promise<DocumentResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/documents/${id}/amend/walrus`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(req),
   });
   return handleResponse<DocumentResponse>(res);
 }

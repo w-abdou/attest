@@ -47,6 +47,12 @@ export const CopyIcon = (p: IconProps) => (
 export const UploadIcon = (p: IconProps) => (
   <Icon {...p}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><path d="M7 9l5-5 5 5" /><path d="M12 4v12" /></Icon>
 );
+export const DownloadIcon = (p: IconProps) => (
+  <Icon {...p}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><path d="M7 10l5 5 5-5" /><path d="M12 15V3" /></Icon>
+);
+export const CloudIcon = (p: IconProps) => (
+  <Icon {...p}><path d="M7 18a4.5 4.5 0 010-9 5.5 5.5 0 0110.6 1.8A3.5 3.5 0 0117 18H7z" /></Icon>
+);
 export const CloseIcon = (p: IconProps) => (<Icon {...p}><path d="M18 6L6 18" /><path d="M6 6l12 12" /></Icon>);
 export const ChevronRightIcon = (p: IconProps) => (<Icon {...p}><path d="M9 18l6-6-6-6" /></Icon>);
 export const ArrowLeftIcon = (p: IconProps) => (<Icon {...p}><path d="M19 12H5" /><path d="M12 19l-7-7 7-7" /></Icon>);

@@ -1,5 +1,6 @@
 package com.attest.attest;
 
+import com.attest.attest.dto.WalrusUploadRequest;
 import com.attest.attest.exception.ForbiddenException;
 import com.attest.attest.exception.InvalidFileException;
 import com.attest.attest.model.*;
@@ -225,6 +226,98 @@ class DocumentServiceSecurityTests {
         // Envelope changed, so signer 2's earlier signature is now stale.
         assertNotEquals(envelopeAfterFirstAssign, envelopeAfterReassign);
         assertNotEquals(DocumentStatus.FULLY_SIGNED, document.getStatus());
+    }
+
+    @Test
+    void walrusUploadRecordsMetadataWithNoFileBytesInvolved() throws IOException {
+        member(1L, TeamRole.TEAM_SIGNER);
+        when(documentRepository.save(any(Document.class))).thenAnswer(inv -> {
+            Document d = inv.getArgument(0);
+            if (d.getId() == null) d.setId(20L);
+            return d;
+        });
+
+        String plaintextHash = new HashService().sha256(pdfBytes());
+        WalrusUploadRequest req = new WalrusUploadRequest(
+                "document.pdf", "application/pdf", plaintextHash, "blob-abc123", "0xblobobject", 1024L);
+
+        Document created = service.uploadWalrus(req, TEAM, 1L);
+
+        assertEquals("WALRUS", created.getStorageBackend());
+        assertEquals("blob-abc123", created.getWalrusBlobId());
+        assertEquals("0xblobobject", created.getWalrusBlobObjectId());
+        assertEquals(plaintextHash, created.getDocumentHash());
+        assertNull(created.getStorageReference());
+        verify(storageService, never()).store(any());
+        verify(auditLogRepository).save(argThat(log -> log.getAction().equals("UPLOADED")));
+    }
+
+    @Test
+    void walrusUploadRejectsBadHashFormatAndWrongContentType() {
+        member(1L, TeamRole.TEAM_SIGNER);
+
+        WalrusUploadRequest badHash = new WalrusUploadRequest(
+                "document.pdf", "application/pdf", "not-a-hash", "blob-abc123", null, 1024L);
+        assertThrows(InvalidFileException.class, () -> service.uploadWalrus(badHash, TEAM, 1L));
+
+        WalrusUploadRequest badType = new WalrusUploadRequest(
+                "document.exe", "application/octet-stream", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L);
+        assertThrows(InvalidFileException.class, () -> service.uploadWalrus(badType, TEAM, 1L));
+    }
+
+    @Test
+    void viewerCannotUploadToWalrus() {
+        member(9L, TeamRole.TEAM_VIEWER);
+        WalrusUploadRequest req = new WalrusUploadRequest(
+                "document.pdf", "application/pdf", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L);
+        assertThrows(ForbiddenException.class, () -> service.uploadWalrus(req, TEAM, 9L));
+    }
+
+    @Test
+    void verifyHashComparesAgainstStoredDocumentHashWithNoFileBytes() {
+        member(1L, TeamRole.TEAM_VIEWER);
+        String correctHash = document.getDocumentHash();
+
+        var success = service.verifyHash(10L, correctHash, 1L);
+        assertTrue(success.verified());
+        verify(auditLogRepository).save(argThat(log -> log.getAction().equals("VERIFY_SUCCESS")));
+
+        var failure = service.verifyHash(10L, "f".repeat(64), 1L);
+        assertFalse(failure.verified());
+        verify(auditLogRepository).save(argThat(log -> log.getAction().equals("VERIFY_FAILED")));
+    }
+
+    @Test
+    void verifyHashRejectsMalformedHash() {
+        member(1L, TeamRole.TEAM_VIEWER);
+        assertThrows(InvalidFileException.class, () -> service.verifyHash(10L, "short", 1L));
+    }
+
+    @Test
+    void amendWalrusCarriesOverSignersAndBumpsVersion() {
+        member(1L, TeamRole.TEAM_ADMIN);
+        when(documentRepository.findByRootDocumentIdOrderByVersionAsc(10L)).thenReturn(List.of(document));
+        when(documentRepository.save(any(Document.class))).thenAnswer(inv -> {
+            Document d = inv.getArgument(0);
+            if (d.getId() == null) d.setId(21L);
+            return d;
+        });
+        DocumentSigner existingSigner = new DocumentSigner();
+        existingSigner.setDocumentId(10L);
+        existingSigner.setUserId(2L);
+        when(signerRepository.findByDocumentId(10L)).thenReturn(List.of(existingSigner));
+
+        String newHash = new HashService().sha256(pdfWithContent("amended").getBytes());
+        WalrusUploadRequest req = new WalrusUploadRequest(
+                "document-v2.pdf", "application/pdf", newHash, "blob-v2", null, 2048L);
+
+        Document amended = service.amendWalrus(10L, req, 1L);
+
+        assertEquals(2, amended.getVersion());
+        assertEquals(10L, amended.getRootDocumentId());
+        assertEquals("WALRUS", amended.getStorageBackend());
+        assertEquals("blob-v2", amended.getWalrusBlobId());
+        verify(signerRepository).save(argThat(s -> s.getUserId().equals(2L)));
     }
 
     private MockMultipartFile pdf(String filename) {

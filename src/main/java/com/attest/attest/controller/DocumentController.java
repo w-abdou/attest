@@ -44,6 +44,15 @@ public class DocumentController {
         return ResponseEntity.ok(DocumentResponse.from(doc));
     }
 
+    @PostMapping("/team/{teamId}/walrus")
+    public ResponseEntity<DocumentResponse> uploadWalrus(@PathVariable Long teamId,
+                                                         @Valid @RequestBody WalrusUploadRequest request,
+                                                         HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        Document doc = documentService.uploadWalrus(request, teamId, requesterId);
+        return ResponseEntity.ok(DocumentResponse.from(doc));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<DocumentResponse> get(@PathVariable Long id, HttpServletRequest request) {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
@@ -69,10 +78,25 @@ public class DocumentController {
         return ResponseEntity.ok(new VerifyResponse(result.documentId(), result.verified(), result.resultMessage()));
     }
 
+    @PostMapping("/{id}/verify-hash")
+    public ResponseEntity<VerifyResponse> verifyHash(@PathVariable Long id, @Valid @RequestBody VerifyHashRequest request, HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        DocumentService.VerifyResult result = documentService.verifyHash(id, request.documentHash(), requesterId);
+        return ResponseEntity.ok(new VerifyResponse(result.documentId(), result.verified(), result.resultMessage()));
+    }
+
     @PostMapping("/{id}/amend")
     public ResponseEntity<DocumentResponse> amend(@PathVariable Long id, @RequestParam("file") MultipartFile file, HttpServletRequest request) throws IOException {
         Long requesterId = (Long) request.getAttribute("authenticatedUserId");
         return ResponseEntity.ok(DocumentResponse.from(documentService.amend(id, file, requesterId)));
+    }
+
+    @PostMapping("/{id}/amend/walrus")
+    public ResponseEntity<DocumentResponse> amendWalrus(@PathVariable Long id,
+                                                        @Valid @RequestBody WalrusUploadRequest request,
+                                                        HttpServletRequest http) {
+        Long requesterId = (Long) http.getAttribute("authenticatedUserId");
+        return ResponseEntity.ok(DocumentResponse.from(documentService.amendWalrus(id, request, requesterId)));
     }
 
     @PutMapping("/{id}/signers")
@@ -118,9 +142,7 @@ public class DocumentController {
                                                           HttpServletRequest http) {
         Long requesterId = (Long) http.getAttribute("authenticatedUserId");
         Document doc = documentService.recordOnchainRegistration(
-                id, req.objectId(), req.txDigest(),
-                com.attest.attest.model.Document.class.getName().isEmpty() ? null : null,
-                null, requesterId);
+                id, req.objectId(), req.txDigest(), req.packageId(), req.network(), requesterId);
         return ResponseEntity.ok(DocumentResponse.from(doc));
     }
 }

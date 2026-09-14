@@ -1,5 +1,6 @@
 package com.attest.attest.service;
 
+import com.attest.attest.dto.WalrusUploadRequest;
 import com.attest.attest.exception.DocumentNotFoundException;
 import com.attest.attest.exception.ForbiddenException;
 import com.attest.attest.exception.InvalidFileException;
@@ -17,12 +18,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class DocumentService {
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("application/pdf");
     private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+    private static final Pattern SHA256_HEX = Pattern.compile("^[a-f0-9]{64}$");
+    private static final String STORAGE_BACKEND_WALRUS = "WALRUS";
 
     private final DocumentRepository documentRepository;
     private final DocumentStorageService storageService;
@@ -70,6 +74,28 @@ public class DocumentService {
         }
     }
 
+    // A Walrus upload never gives the backend file bytes, so there is no magic-byte
+    // sniff here — only the shape of the metadata the browser claims can be checked.
+    // The content-type/size checks that matter for the file itself have to happen
+    // client-side before it ever leaves the browser.
+    private void validateWalrusUploadRequest(WalrusUploadRequest req) {
+        if (!ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
+            throw new InvalidFileException("Only application/pdf documents are accepted");
+        }
+        if (req.size() > MAX_FILE_SIZE_BYTES) {
+            throw new InvalidFileException("File exceeds maximum size of 10MB");
+        }
+        if (!SHA256_HEX.matcher(req.documentHash()).matches()) {
+            throw new InvalidFileException("documentHash must be a 64-character lowercase hex SHA-256 digest");
+        }
+    }
+
+    private void validateHash(String hash) {
+        if (!SHA256_HEX.matcher(hash).matches()) {
+            throw new InvalidFileException("documentHash must be a 64-character lowercase hex SHA-256 digest");
+        }
+    }
+
     // ---- authorization now flows through team membership ----
 
     private TeamMembership authorizeTeamMember(Document document, Long requesterId) {
@@ -107,6 +133,35 @@ public class DocumentService {
         documentRepository.save(doc);
 
         logAction(doc.getId(), "UPLOADED", requesterId, "version " + doc.getVersion());
+        return doc;
+    }
+
+    /**
+     * The Walrus-backed sibling of {@link #upload}: the browser has already put
+     * the (unencrypted for slice A, client-encrypted for slice B) bytes on
+     * Walrus directly, so there is nothing to read or store here — just the
+     * client-computed plaintext hash and blob reference to record.
+     */
+    @Transactional
+    public Document uploadWalrus(WalrusUploadRequest req, Long teamId, Long requesterId) {
+        authorizeCanWrite(teamId, requesterId);
+        validateWalrusUploadRequest(req);
+
+        Document doc = new Document();
+        doc.setFilename(req.filename());
+        doc.setContentType(req.contentType());
+        doc.setStorageBackend(STORAGE_BACKEND_WALRUS);
+        doc.setWalrusBlobId(req.walrusBlobId());
+        doc.setWalrusBlobObjectId(req.walrusBlobObjectId());
+        doc.setDocumentHash(req.documentHash());
+        doc.setOwnerId(requesterId);
+        doc.setTeamId(teamId);
+        documentRepository.save(doc);
+
+        doc.setRootDocumentId(doc.getId());
+        documentRepository.save(doc);
+
+        logAction(doc.getId(), "UPLOADED", requesterId, "version " + doc.getVersion() + " (Walrus)");
         return doc;
     }
 
@@ -181,6 +236,24 @@ public class DocumentService {
         return new VerifyResult(doc.getId(), matches);
     }
 
+    /**
+     * The Walrus-backed sibling of {@link #verify}: the browser has already
+     * downloaded the blob (and decrypted it, for slice B) and hashed the
+     * plaintext itself, so this just compares against the stored hash and
+     * audits the outcome — same semantics as {@link #verify}, no file bytes.
+     */
+    @Transactional
+    public VerifyResult verifyHash(Long id, String documentHash, Long requesterId) {
+        Document doc = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        authorizeTeamMember(doc, requesterId);
+        validateHash(documentHash);
+
+        boolean matches = documentHash.equals(doc.getDocumentHash());
+        logAction(doc.getId(), matches ? "VERIFY_SUCCESS" : "VERIFY_FAILED", requesterId, null);
+        return new VerifyResult(doc.getId(), matches);
+    }
+
     @Transactional
     public Document amend(Long id, MultipartFile file, Long requesterId) throws IOException {
         Document original = documentRepository.findById(id)
@@ -215,6 +288,42 @@ public class DocumentService {
         }
 
         logAction(newVersion.getId(), "AMENDED", requesterId, "new version " + newVersion.getVersion() + " of root " + rootId);
+        return newVersion;
+    }
+
+    /** The Walrus-backed sibling of {@link #amend} — same versioning/signer-carryover rules, no file bytes. */
+    @Transactional
+    public Document amendWalrus(Long id, WalrusUploadRequest req, Long requesterId) {
+        Document original = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        authorizeCanWrite(original.getTeamId(), requesterId);
+        validateWalrusUploadRequest(req);
+
+        Long rootId = original.getRootDocumentId();
+        List<Document> existingVersions = documentRepository.findByRootDocumentIdOrderByVersionAsc(rootId);
+        Integer maxVersion = existingVersions.stream().map(Document::getVersion).max(Integer::compareTo).orElse(original.getVersion());
+
+        Document newVersion = new Document();
+        newVersion.setFilename(req.filename());
+        newVersion.setContentType(req.contentType());
+        newVersion.setStorageBackend(STORAGE_BACKEND_WALRUS);
+        newVersion.setWalrusBlobId(req.walrusBlobId());
+        newVersion.setWalrusBlobObjectId(req.walrusBlobObjectId());
+        newVersion.setDocumentHash(req.documentHash());
+        newVersion.setOwnerId(original.getOwnerId());
+        newVersion.setTeamId(original.getTeamId());
+        newVersion.setVersion(maxVersion + 1);
+        newVersion.setRootDocumentId(rootId);
+        documentRepository.save(newVersion);
+
+        for (DocumentSigner s : signerRepository.findByDocumentId(original.getId())) {
+            DocumentSigner copy = new DocumentSigner();
+            copy.setDocumentId(newVersion.getId());
+            copy.setUserId(s.getUserId());
+            signerRepository.save(copy);
+        }
+
+        logAction(newVersion.getId(), "AMENDED", requesterId, "new version " + newVersion.getVersion() + " of root " + rootId + " (Walrus)");
         return newVersion;
     }
 

@@ -1,6 +1,5 @@
 package com.attest.attest;
 
-import com.attest.attest.dto.RegisterRequest;
 import com.attest.attest.exception.InvalidRoleException;
 import com.attest.attest.exception.UserNotFoundException;
 import com.attest.attest.model.Role;
@@ -16,17 +15,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class UserServiceSecurityTests {
-
-    @Test
-    void publicRegistrationCannotGrantPrivilegedRole() {
-        UserRepository repository = mock(UserRepository.class);
-        when(repository.findByEmail("new@example.com")).thenReturn(Optional.empty());
-        when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        User user = new UserService(repository).register(new RegisterRequest("new@example.com", "password123", "ADMIN"));
-
-        assertEquals(Role.VIEWER, user.getRole());
-    }
 
     @Test
     void updateRoleChangesRoleForExistingUser() {
@@ -65,19 +53,20 @@ class UserServiceSecurityTests {
         UserRepository repository = mock(UserRepository.class);
         UserService service = new UserService(repository);
 
-        service.bootstrapAdminIfConfigured("", "");
-        service.bootstrapAdminIfConfigured(null, null);
+        service.bootstrapAdminIfConfigured("");
+        service.bootstrapAdminIfConfigured(null);
 
         verifyNoInteractions(repository);
     }
 
     @Test
-    void bootstrapAdminIsSkippedWhenEmailAlreadyExists() {
+    void bootstrapAdminIsSkippedWhenAddressAlreadyExists() {
         UserRepository repository = mock(UserRepository.class);
-        when(repository.findByEmail("admin@attest.dev")).thenReturn(Optional.of(new User()));
+        String address = "0x" + "a".repeat(64);
+        when(repository.findBySuiAddress(address)).thenReturn(Optional.of(new User()));
         UserService service = new UserService(repository);
 
-        service.bootstrapAdminIfConfigured("admin@attest.dev", "SomePassword123!");
+        service.bootstrapAdminIfConfigured(address);
 
         verify(repository, never()).save(any());
     }
@@ -85,12 +74,13 @@ class UserServiceSecurityTests {
     @Test
     void bootstrapAdminCreatesAdminWhenConfiguredAndAbsent() {
         UserRepository repository = mock(UserRepository.class);
-        when(repository.findByEmail("admin@attest.dev")).thenReturn(Optional.empty());
+        String address = "0x" + "b".repeat(64);
+        when(repository.findBySuiAddress(address)).thenReturn(Optional.empty());
         when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         UserService service = new UserService(repository);
 
-        service.bootstrapAdminIfConfigured("admin@attest.dev", "SomePassword123!");
+        service.bootstrapAdminIfConfigured(address);
 
-        verify(repository).save(argThat(user -> user.getRole() == Role.ADMIN && "admin@attest.dev".equals(user.getEmail())));
+        verify(repository).save(argThat(user -> user.getRole() == Role.ADMIN && address.equals(user.getSuiAddress())));
     }
 }

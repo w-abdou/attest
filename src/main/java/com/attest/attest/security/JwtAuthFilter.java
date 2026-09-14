@@ -17,8 +17,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
 
     private static final List<String> PUBLIC_PATHS = List.of(
-            "/api/auth/register",
-            "/api/auth/login",
+            "/api/auth/wallet/challenge",
+            "/api/auth/wallet/verify",
             "/swagger-ui",
             "/v3/api-docs"
     );

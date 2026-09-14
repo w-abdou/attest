@@ -45,27 +45,24 @@ public class TeamController {
     public ResponseEntity<List<TeamMemberResponse>> members(@PathVariable Long teamId, HttpServletRequest http) {
         Long userId = (Long) http.getAttribute("authenticatedUserId");
         List<TeamMembership> memberships = teamService.listMembers(teamId, userId);
-        List<TeamMemberResponse> result = memberships.stream().map(m -> {
-            String email = userRepository.findById(m.getUserId()).map(User::getEmail).orElse("(unknown)");
-            return new TeamMemberResponse(m.getUserId(), email, m.getTeamRole());
-        }).toList();
+        List<TeamMemberResponse> result = memberships.stream()
+                .map(m -> toResponse(m, m.getUserId()))
+                .toList();
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/{teamId}/members")
     public ResponseEntity<TeamMemberResponse> addMember(@PathVariable Long teamId, @Valid @RequestBody AddMemberRequest request, HttpServletRequest http) {
         Long userId = (Long) http.getAttribute("authenticatedUserId");
-        TeamMembership m = teamService.addMember(teamId, request.email(), request.teamRole(), userId);
-        String email = userRepository.findById(m.getUserId()).map(User::getEmail).orElse("(unknown)");
-        return ResponseEntity.ok(new TeamMemberResponse(m.getUserId(), email, m.getTeamRole()));
+        TeamMembership m = teamService.addMember(teamId, request.identifier(), request.teamRole(), userId);
+        return ResponseEntity.ok(toResponse(m, m.getUserId()));
     }
 
     @PatchMapping("/{teamId}/members/{targetUserId}")
     public ResponseEntity<TeamMemberResponse> updateMember(@PathVariable Long teamId, @PathVariable Long targetUserId, @Valid @RequestBody UpdateMemberRoleRequest request, HttpServletRequest http) {
         Long userId = (Long) http.getAttribute("authenticatedUserId");
         TeamMembership m = teamService.updateMemberRole(teamId, targetUserId, request.teamRole(), userId);
-        String email = userRepository.findById(m.getUserId()).map(User::getEmail).orElse("(unknown)");
-        return ResponseEntity.ok(new TeamMemberResponse(m.getUserId(), email, m.getTeamRole()));
+        return ResponseEntity.ok(toResponse(m, m.getUserId()));
     }
 
     @DeleteMapping("/{teamId}/members/{targetUserId}")
@@ -73,5 +70,12 @@ public class TeamController {
         Long userId = (Long) http.getAttribute("authenticatedUserId");
         teamService.removeMember(teamId, targetUserId, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    private TeamMemberResponse toResponse(TeamMembership membership, Long memberUserId) {
+        User user = userRepository.findById(memberUserId).orElse(null);
+        String email = user != null ? user.getEmail() : null;
+        String suiAddress = user != null ? user.getSuiAddress() : null;
+        return new TeamMemberResponse(memberUserId, email, suiAddress, membership.getTeamRole());
     }
 }

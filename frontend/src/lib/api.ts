@@ -11,20 +11,46 @@ export class ApiError extends Error {
 export type Role = "ADMIN" | "SIGNER" | "VIEWER";
 export type TeamRole = "TEAM_ADMIN" | "TEAM_SIGNER" | "TEAM_VIEWER";
 
-export interface UserResponse { id: number; email: string; role: Role; suiAddress: string | null; }
+// Accounts are wallet-native: email is nullable (zkLogin accounts have none),
+// suiAddress is what actually identifies the account.
+export interface UserResponse { id: number; email: string | null; role: Role; suiAddress: string | null; }
 export interface LoginResponse extends UserResponse { token: string; }
 
+export interface WalletChallengeResponse { nonce: string; message: string; expiresAt: string; }
+
 export interface TeamResponse { id: number; name: string; createdBy: number; createdAt: string; yourRole: TeamRole; }
-export interface TeamMemberResponse { userId: number; email: string; teamRole: TeamRole; }
+export interface TeamMemberResponse { userId: number; email: string | null; suiAddress: string | null; teamRole: TeamRole; }
 
 export interface DocumentResponse {
-  id: number; filename: string; contentType: string; status: string;
-  version: number; rootDocumentId: number; documentHash: string;
-  ownerId: number; teamId: number; createdAt: string;
+  id: number; filename: string; contentType: string;
+  status: string; version: number;
+  rootDocumentId: number; documentHash: string;
+  ownerId: number; teamId: number;
+  policyHash: string | null; envelopeHash: string | null;
+  expiry: string | null; onchainObjectId: string | null;
+  onchainPackageId: string | null; onchainNetwork: string | null;
+  onchainTxDigest: string | null; createdAt: string;
 }
 export interface AuditLogResponse { id: number; documentId: number; action: string; performedBy: number; timestamp: string; detail: string | null; }
 export interface VerifyResponse { documentId: number; verified: boolean; result: string; }
-export interface SignatureResponse { signerId: number; email: string; signed: boolean; signedAt: string | null; }
+export interface SignatureResponse { signerId: number; email: string | null; suiAddress: string | null; signed: boolean; signedAt: string | null; }
+
+
+export async function recordOnchainRegistration(
+    documentId: number,
+    objectId: string,
+    txDigest: string,
+    packageId: string,
+    network: string,
+): Promise<DocumentResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/documents/${documentId}/onchain-registration`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ objectId, txDigest, packageId, network }),
+  });
+  return handleResponse<DocumentResponse>(res);
+}
+
 
 async function handleResponse<T>(res: Response): Promise<T> {
   const isJson = res.headers.get("content-type")?.includes("application/json");
@@ -53,33 +79,26 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// --- auth ---
-export async function register(email: string, password: string): Promise<UserResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, role: "VIEWER" }),
-  });
-  return handleResponse<UserResponse>(res);
+// --- wallet-native auth ---
+// There is no password path. Logging in and creating an account are the same
+// action: prove control of a Sui address over a fresh, single-use nonce.
+export async function getWalletChallenge(): Promise<WalletChallengeResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/wallet/challenge`, { method: "POST" });
+  return handleResponse<WalletChallengeResponse>(res);
 }
-export async function login(email: string, password: string): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+
+export async function verifyWalletSignature(
+    nonce: string, address: string, signature: string,
+): Promise<LoginResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/wallet/verify`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ nonce, address, signature }),
   });
   return handleResponse<LoginResponse>(res);
 }
 
 export async function getMe(): Promise<UserResponse> {
   const res = await fetch(`${API_BASE_URL}/api/users/me`, { headers: { ...authHeaders() } });
-  return handleResponse<UserResponse>(res);
-}
-
-export async function linkSuiAddress(suiAddress: string): Promise<UserResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/users/me/sui-address`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ suiAddress }),
-  });
   return handleResponse<UserResponse>(res);
 }
 
@@ -99,10 +118,12 @@ export async function listMembers(teamId: number): Promise<TeamMemberResponse[]>
   const res = await fetch(`${API_BASE_URL}/api/teams/${teamId}/members`, { headers: { ...authHeaders() } });
   return handleResponse<TeamMemberResponse[]>(res);
 }
-export async function addMember(teamId: number, email: string, teamRole: TeamRole): Promise<TeamMemberResponse> {
+// `identifier` is either an email or a 0x-prefixed Sui address — the backend
+// decides which by shape, since wallet-only accounts have no email at all.
+export async function addMember(teamId: number, identifier: string, teamRole: TeamRole): Promise<TeamMemberResponse> {
   const res = await fetch(`${API_BASE_URL}/api/teams/${teamId}/members`, {
     method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ email, teamRole }),
+    body: JSON.stringify({ identifier, teamRole }),
   });
   return handleResponse<TeamMemberResponse>(res);
 }
@@ -183,8 +204,8 @@ export async function listAllDocuments(): Promise<DocumentResponse[]> {
 }
 
 // --- admin ---
-// The only way a SIGNER or ADMIN account is ever created. Backend rejects the
-// call unless the JWT itself carries the ADMIN role.
+// The only way an account's global role is ever changed after its first wallet
+// login. Backend rejects the call unless the JWT itself carries the ADMIN role.
 export async function updateUserRole(userId: number, role: Role): Promise<UserResponse> {
   const res = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/role`, {
     method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },

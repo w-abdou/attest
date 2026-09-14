@@ -58,7 +58,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-3xl text-center">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-sui-200 bg-white/80 px-3 py-1 text-xs font-medium text-sui-700 backdrop-blur">
             <span className="h-1.5 w-1.5 rounded-full bg-sui-400" aria-hidden="true" />
-            Sui-backed cryptographic signing arrives in milestone 2
+            Sign in with a Sui wallet — no email or password
           </span>
 
           <h1 className="mt-5 text-balance text-4xl font-semibold tracking-tight text-sui-950 sm:text-5xl">
@@ -72,8 +72,7 @@ export default function HomePage() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <LinkButton href="/register" size="lg">Create an account</LinkButton>
-            <LinkButton href="/login" size="lg" variant="secondary">Log in</LinkButton>
+            <LinkButton href="/login" size="lg">Sign in with Sui</LinkButton>
           </div>
         </div>
       </section>

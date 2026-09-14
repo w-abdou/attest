@@ -12,6 +12,7 @@ import {
 import RequireAuth from "@/components/RequireAuth";
 import PageHeader from "@/components/PageHeader";
 import SignatureProgress from "@/components/SignatureProgress";
+import OnChainRegisterButton from "@/components/sui/OnChainRegisterButton";
 import Card, { CardHeader, CardBody } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Alert from "@/components/ui/Alert";
@@ -27,7 +28,7 @@ import {
   AlertIcon, CheckCircleIcon, HistoryIcon, LayersIcon, PenIcon,
   ShieldIcon, UploadIcon, UsersIcon,
 } from "@/components/ui/Icons";
-import { formatDateTime, shortHash, timeAgo } from "@/lib/format";
+import { displayIdentity, formatDateTime, shortHash, timeAgo } from "@/lib/format";
 
 function DocumentDetailContent() {
   const params = useParams<{ id: string }>();
@@ -311,7 +312,9 @@ function DocumentDetailContent() {
             />
             <CardBody className="space-y-4">
               <SignatureProgress signed={signedCount} total={signers.length} />
-
+              <div className="mt-4 border-t border-ink-100 pt-4">
+                <OnChainRegisterButton doc={doc} signers={signers} onRegistered={loadAll} />
+              </div>
               {signers.length === 0 ? (
                 <EmptyState
                   icon={<UsersIcon />}
@@ -326,10 +329,10 @@ function DocumentDetailContent() {
                 <ul className="divide-y divide-ink-200 rounded-lg border border-ink-200">
                   {signers.map((signer) => (
                     <li key={signer.signerId} className="flex items-center gap-3 px-3.5 py-2.5">
-                      <Avatar email={signer.email} size="sm" />
+                      <Avatar identity={displayIdentity(signer.email, signer.suiAddress)} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm text-ink-900">
-                          {signer.email}
+                          {displayIdentity(signer.email, signer.suiAddress)}
                           {signer.signerId === user?.id && (
                             <span className="ml-1.5 text-xs text-ink-400">(you)</span>
                           )}
@@ -399,9 +402,9 @@ function DocumentDetailContent() {
                             onChange={() => toggleSigner(member.userId)}
                             className="h-4 w-4 shrink-0 accent-sui-600"
                           />
-                          <Avatar email={member.email} size="sm" />
+                          <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
                           <span className="min-w-0 flex-1 truncate text-xs text-ink-800">
-                            {member.email}
+                            {displayIdentity(member.email, member.suiAddress)}
                           </span>
                         </label>
                       );

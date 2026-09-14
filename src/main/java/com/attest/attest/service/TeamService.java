@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 public class TeamService {
@@ -28,12 +29,26 @@ public class TeamService {
         this.userRepository = userRepository;
     }
 
+    private static final Pattern SUI_ADDRESS_PATTERN = Pattern.compile("^0x[a-fA-F0-9]{64}$");
+
     private TeamRole parseRole(String raw) {
         try {
             return TeamRole.valueOf(raw.toUpperCase());
         } catch (IllegalArgumentException ex) {
             throw new TeamMembershipException("Invalid team role: " + raw);
         }
+    }
+
+    /**
+     * Accounts are wallet-native and may have no email at all, so "add a member"
+     * has to accept a Sui address too. The identifier's shape decides which
+     * lookup runs — no separate "type" field for the caller to get wrong.
+     */
+    private Optional<User> resolveUser(String identifier) {
+        if (SUI_ADDRESS_PATTERN.matcher(identifier).matches()) {
+            return userRepository.findBySuiAddress(identifier);
+        }
+        return userRepository.findByEmail(identifier);
     }
 
     public Team createTeam(String name, Long creatorId) {
@@ -83,14 +98,14 @@ public class TeamService {
         return membershipRepository.findByTeamId(teamId);
     }
 
-    public TeamMembership addMember(Long teamId, String email, String roleRaw, Long requesterId) {
+    public TeamMembership addMember(Long teamId, String identifier, String roleRaw, Long requesterId) {
         getTeam(teamId);
         requireTeamAdmin(teamId, requesterId);
 
         TeamRole role = parseRole(roleRaw);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new TeamMembershipException("No registered user with email " + email));
+        User user = resolveUser(identifier)
+                .orElseThrow(() -> new TeamMembershipException("No registered user with that email or Sui address"));
 
         if (membershipRepository.findByTeamIdAndUserId(teamId, user.getId()).isPresent()) {
             throw new TeamMembershipException("That user is already a member of this team");

@@ -88,6 +88,30 @@ class TeamServiceSecurityTests {
     }
 
     @Test
+    void addingBySuiAddressWorksForAWalletOnlyAccountWithNoEmail() {
+        requesterIsAdmin(1L);
+        String address = "0x" + "c".repeat(64);
+        User target = new User(); target.setId(3L); target.setSuiAddress(address); // no email set
+        when(userRepository.findBySuiAddress(address)).thenReturn(Optional.of(target));
+        when(membershipRepository.save(any(TeamMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TeamMembership added = service.addMember(TEAM, address, "TEAM_SIGNER", 1L);
+
+        assertEquals(3L, added.getUserId());
+        verify(userRepository, never()).findByEmail(any());
+    }
+
+    @Test
+    void addingAnUnregisteredSuiAddressIsRejected() {
+        requesterIsAdmin(1L);
+        String address = "0x" + "d".repeat(64);
+        when(userRepository.findBySuiAddress(address)).thenReturn(Optional.empty());
+
+        assertThrows(TeamMembershipException.class,
+                () -> service.addMember(TEAM, address, "TEAM_SIGNER", 1L));
+    }
+
+    @Test
     void cannotDemoteLastAdmin() {
         requesterIsAdmin(1L);
         when(membershipRepository.countByTeamIdAndTeamRole(TEAM, TeamRole.TEAM_ADMIN)).thenReturn(1L);

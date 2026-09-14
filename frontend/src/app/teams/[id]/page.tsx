@@ -20,7 +20,7 @@ import { RoleBadge } from "@/components/ui/Badge";
 import { InlineSelect } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { FileIcon, PlusIcon, TrashIcon, UploadIcon, UsersIcon } from "@/components/ui/Icons";
-import { displayIdentity, shortHash } from "@/lib/format";
+import { displayIdentity } from "@/lib/format";
 
 const TEAM_ROLES: { value: TeamRole; label: string; blurb: string }[] = [
   { value: "TEAM_VIEWER", label: "Viewer", blurb: "View and verify documents only" },
@@ -111,7 +111,7 @@ function TeamDetailContent() {
   async function handleRoleChange(member: TeamMemberResponse, role: TeamRole) {
     try {
       await api.updateMemberRole(teamId, member.userId, role);
-      toast.success(`${displayIdentity(member.email, member.suiAddress)} is now ${TEAM_ROLES.find((r) => r.value === role)?.label}.`);
+      toast.success(`${displayIdentity(member.username, member.email, member.suiAddress)} is now ${TEAM_ROLES.find((r) => r.value === role)?.label}.`);
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not change that role.");
@@ -124,7 +124,7 @@ function TeamDetailContent() {
     setRemoving(true);
     try {
       await api.removeMember(teamId, pendingRemoval.userId);
-      toast.success(`${displayIdentity(pendingRemoval.email, pendingRemoval.suiAddress)} removed from ${team?.name}.`);
+      toast.success(`${displayIdentity(pendingRemoval.username, pendingRemoval.email, pendingRemoval.suiAddress)} removed from ${team?.name}.`);
       setPendingRemoval(null);
       await load();
     } catch (err) {
@@ -280,10 +280,10 @@ function TeamDetailContent() {
                   return (
                       <li key={member.userId} className="px-4 py-3 transition-colors hover:bg-ink-50/60">
                         <div className="flex items-center gap-2.5">
-                          <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
+                          <Avatar identity={displayIdentity(member.username, member.email, member.suiAddress)} size="sm" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-ink-900">
-                              {member.email ?? shortHash(member.suiAddress ?? "", 6)}
+                              {displayIdentity(member.username, member.email, member.suiAddress)}
                               {isMe && <span className="ml-1 text-xs font-normal text-ink-400">(you)</span>}
                             </p>
                             {member.email && (
@@ -295,7 +295,7 @@ function TeamDetailContent() {
                         {isTeamAdmin && (
                             <div className="mt-2 flex items-center gap-1.5 pl-[42px]">
                               <InlineSelect
-                                  aria-label={`Team role for ${displayIdentity(member.email, member.suiAddress)}`}
+                                  aria-label={`Team role for ${displayIdentity(member.username, member.email, member.suiAddress)}`}
                                   value={member.teamRole}
                                   onChange={(e) => handleRoleChange(member, e.target.value as TeamRole)}
                                   className="flex-1"
@@ -306,7 +306,7 @@ function TeamDetailContent() {
                               </InlineSelect>
                               <button
                                   onClick={() => setPendingRemoval(member)}
-                                  aria-label={`Remove ${displayIdentity(member.email, member.suiAddress)}`}
+                                  aria-label={`Remove ${displayIdentity(member.username, member.email, member.suiAddress)}`}
                                   className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-red-50 hover:text-red-600"
                               >
                                 <TrashIcon className="text-sm" />
@@ -362,7 +362,7 @@ function TeamDetailContent() {
 
         <ConfirmDialog
             open={pendingRemoval !== null}
-            title={`Remove ${pendingRemoval ? displayIdentity(pendingRemoval.email, pendingRemoval.suiAddress) : "member"}?`}
+            title={`Remove ${pendingRemoval ? displayIdentity(pendingRemoval.username, pendingRemoval.email, pendingRemoval.suiAddress) : "member"}?`}
             description="They lose access to every document in this team immediately. Signatures they have already recorded are kept."
             confirmLabel="Remove member"
             busy={removing}

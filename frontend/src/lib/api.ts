@@ -12,14 +12,18 @@ export type Role = "ADMIN" | "SIGNER" | "VIEWER";
 export type TeamRole = "TEAM_ADMIN" | "TEAM_SIGNER" | "TEAM_VIEWER";
 
 // Accounts are wallet-native: email is nullable (zkLogin accounts have none),
-// suiAddress is what actually identifies the account.
-export interface UserResponse { id: number; email: string | null; role: Role; suiAddress: string | null; }
+// suiAddress is what actually identifies the account. username is null only
+// for the brief moment between a brand-new account's first login and the
+// forced onboarding step that assigns one — see AuthContext/OnboardingGate.
+export interface UserResponse { id: number; username: string | null; email: string | null; role: Role; suiAddress: string | null; }
 export interface LoginResponse extends UserResponse { token: string; }
 
 export interface WalletChallengeResponse { nonce: string; message: string; expiresAt: string; }
 
+export interface UsernameAvailabilityResponse { available: boolean; reason: string | null; }
+
 export interface TeamResponse { id: number; name: string; createdBy: number; createdAt: string; yourRole: TeamRole; }
-export interface TeamMemberResponse { userId: number; email: string | null; suiAddress: string | null; teamRole: TeamRole; }
+export interface TeamMemberResponse { userId: number; username: string | null; email: string | null; suiAddress: string | null; teamRole: TeamRole; }
 
 export interface DocumentResponse {
   id: number; filename: string; contentType: string;
@@ -33,7 +37,7 @@ export interface DocumentResponse {
 }
 export interface AuditLogResponse { id: number; documentId: number; action: string; performedBy: number; timestamp: string; detail: string | null; }
 export interface VerifyResponse { documentId: number; verified: boolean; result: string; }
-export interface SignatureResponse { signerId: number; email: string | null; suiAddress: string | null; signed: boolean; signedAt: string | null; }
+export interface SignatureResponse { signerId: number; username: string | null; email: string | null; suiAddress: string | null; signed: boolean; signedAt: string | null; }
 
 
 export async function recordOnchainRegistration(
@@ -102,6 +106,25 @@ export async function getMe(): Promise<UserResponse> {
   return handleResponse<UserResponse>(res);
 }
 
+// --- usernames ---
+// Off-chain only: a username never appears in a Sui transaction or the Move
+// package. On-chain identity stays the address; this is purely a
+// human-friendly, unique handle layered on top for display and invites.
+export async function checkUsernameAvailability(username: string): Promise<UsernameAvailabilityResponse> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/users/username-availability?username=${encodeURIComponent(username)}`,
+    { headers: { ...authHeaders() } },
+  );
+  return handleResponse<UsernameAvailabilityResponse>(res);
+}
+export async function setUsername(username: string): Promise<UserResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/users/me/username`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ username }),
+  });
+  return handleResponse<UserResponse>(res);
+}
+
 // --- teams ---
 export async function listTeams(): Promise<TeamResponse[]> {
   const res = await fetch(`${API_BASE_URL}/api/teams`, { headers: { ...authHeaders() } });
@@ -118,8 +141,9 @@ export async function listMembers(teamId: number): Promise<TeamMemberResponse[]>
   const res = await fetch(`${API_BASE_URL}/api/teams/${teamId}/members`, { headers: { ...authHeaders() } });
   return handleResponse<TeamMemberResponse[]>(res);
 }
-// `identifier` is either an email or a 0x-prefixed Sui address — the backend
-// decides which by shape, since wallet-only accounts have no email at all.
+// `identifier` is a username, an email, or a 0x-prefixed Sui address — the
+// backend decides which by shape. Username is the primary invite path since
+// zkLogin accounts have no email at all.
 export async function addMember(teamId: number, identifier: string, teamRole: TeamRole): Promise<TeamMemberResponse> {
   const res = await fetch(`${API_BASE_URL}/api/teams/${teamId}/members`, {
     method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },

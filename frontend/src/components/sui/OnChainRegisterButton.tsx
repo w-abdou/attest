@@ -57,7 +57,7 @@ export default function OnChainRegisterButton({ doc, signers, onRegistered }: Pr
     setBusy(true);
     try {
       const addresses = signers.map((s) => s.suiAddress as string);
-      const result = await registerDocumentOnChain(doc.envelopeHash as string, addresses);
+      const result = await registerDocumentOnChain(doc.id, doc.envelopeHash as string, addresses);
       await api.recordOnchainRegistration(
         doc.id, result.objectId, result.txDigest, result.packageId, result.network,
       );

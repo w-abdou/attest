@@ -153,6 +153,7 @@ public class DocumentService {
         doc.setStorageBackend(STORAGE_BACKEND_WALRUS);
         doc.setWalrusBlobId(req.walrusBlobId());
         doc.setWalrusBlobObjectId(req.walrusBlobObjectId());
+        doc.setEncryptionKeyBase64(req.encryptionKeyBase64());
         doc.setDocumentHash(req.documentHash());
         doc.setOwnerId(requesterId);
         doc.setTeamId(teamId);
@@ -309,6 +310,7 @@ public class DocumentService {
         newVersion.setStorageBackend(STORAGE_BACKEND_WALRUS);
         newVersion.setWalrusBlobId(req.walrusBlobId());
         newVersion.setWalrusBlobObjectId(req.walrusBlobObjectId());
+        newVersion.setEncryptionKeyBase64(req.encryptionKeyBase64());
         newVersion.setDocumentHash(req.documentHash());
         newVersion.setOwnerId(original.getOwnerId());
         newVersion.setTeamId(original.getTeamId());

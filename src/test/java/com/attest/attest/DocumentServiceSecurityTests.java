@@ -239,7 +239,7 @@ class DocumentServiceSecurityTests {
 
         String plaintextHash = new HashService().sha256(pdfBytes());
         WalrusUploadRequest req = new WalrusUploadRequest(
-                "document.pdf", "application/pdf", plaintextHash, "blob-abc123", "0xblobobject", 1024L);
+                "document.pdf", "application/pdf", plaintextHash, "blob-abc123", "0xblobobject", 1024L, null);
 
         Document created = service.uploadWalrus(req, TEAM, 1L);
 
@@ -248,8 +248,31 @@ class DocumentServiceSecurityTests {
         assertEquals("0xblobobject", created.getWalrusBlobObjectId());
         assertEquals(plaintextHash, created.getDocumentHash());
         assertNull(created.getStorageReference());
+        assertNull(created.getEncryptionKeyBase64());
         verify(storageService, never()).store(any());
         verify(auditLogRepository).save(argThat(log -> log.getAction().equals("UPLOADED")));
+    }
+
+    @Test
+    void walrusUploadRecordsEncryptionKeyWhenClientEncrypted() {
+        member(1L, TeamRole.TEAM_SIGNER);
+        when(documentRepository.save(any(Document.class))).thenAnswer(inv -> {
+            Document d = inv.getArgument(0);
+            if (d.getId() == null) d.setId(22L);
+            return d;
+        });
+
+        String plaintextHash = new HashService().sha256(pdfBytes());
+        WalrusUploadRequest req = new WalrusUploadRequest(
+                "document.pdf", "application/pdf", plaintextHash, "blob-encrypted", null, 1024L, "base64-aes-key==");
+
+        Document created = service.uploadWalrus(req, TEAM, 1L);
+
+        assertEquals("base64-aes-key==", created.getEncryptionKeyBase64());
+        // The recorded hash is still the plaintext hash — hashing happens
+        // client-side before encryption, so integrity/envelope semantics are
+        // unaffected by whether the stored blob is encrypted.
+        assertEquals(plaintextHash, created.getDocumentHash());
     }
 
     @Test
@@ -257,11 +280,11 @@ class DocumentServiceSecurityTests {
         member(1L, TeamRole.TEAM_SIGNER);
 
         WalrusUploadRequest badHash = new WalrusUploadRequest(
-                "document.pdf", "application/pdf", "not-a-hash", "blob-abc123", null, 1024L);
+                "document.pdf", "application/pdf", "not-a-hash", "blob-abc123", null, 1024L, null);
         assertThrows(InvalidFileException.class, () -> service.uploadWalrus(badHash, TEAM, 1L));
 
         WalrusUploadRequest badType = new WalrusUploadRequest(
-                "document.exe", "application/octet-stream", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L);
+                "document.exe", "application/octet-stream", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L, null);
         assertThrows(InvalidFileException.class, () -> service.uploadWalrus(badType, TEAM, 1L));
     }
 
@@ -269,7 +292,7 @@ class DocumentServiceSecurityTests {
     void viewerCannotUploadToWalrus() {
         member(9L, TeamRole.TEAM_VIEWER);
         WalrusUploadRequest req = new WalrusUploadRequest(
-                "document.pdf", "application/pdf", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L);
+                "document.pdf", "application/pdf", new HashService().sha256(pdfBytes()), "blob-abc123", null, 1024L, null);
         assertThrows(ForbiddenException.class, () -> service.uploadWalrus(req, TEAM, 9L));
     }
 
@@ -309,7 +332,7 @@ class DocumentServiceSecurityTests {
 
         String newHash = new HashService().sha256(pdfWithContent("amended").getBytes());
         WalrusUploadRequest req = new WalrusUploadRequest(
-                "document-v2.pdf", "application/pdf", newHash, "blob-v2", null, 2048L);
+                "document-v2.pdf", "application/pdf", newHash, "blob-v2", null, 2048L, null);
 
         Document amended = service.amendWalrus(10L, req, 1L);
 

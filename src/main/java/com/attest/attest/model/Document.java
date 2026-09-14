@@ -45,6 +45,16 @@ public class Document {
     @Column(nullable = true)
     private String walrusBlobObjectId;
 
+    // Base64 raw AES-256-GCM key, present only when the client encrypted the
+    // blob before uploading it (nullable — slice A / unencrypted Walrus
+    // documents, and all LOCAL documents, leave this null). This is a
+    // deliberately simple, locally-managed key for now: any team member who
+    // can already read this document's metadata can decrypt it. There is no
+    // per-signer access control yet — that requires Seal (on-chain-gated key
+    // distribution), a later slice. See docs/security-assessment.md.
+    @Column(nullable = true)
+    private String encryptionKeyBase64;
+
     @Column(nullable = false)
     private Long ownerId;
 

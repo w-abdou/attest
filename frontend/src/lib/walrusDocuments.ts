@@ -1,17 +1,22 @@
 import * as api from "@/lib/api";
 import { DocumentResponse, VerifyResponse } from "@/lib/api";
-import { sha256Hex } from "@/lib/clientCrypto";
+import { decryptBytes, encryptBytes, sha256Hex } from "@/lib/clientCrypto";
 import { uploadBlobToWalrus, downloadBlobFromWalrus } from "@/lib/walrusClient";
 
 /**
- * Client-direct upload: the backend never receives these bytes. The browser
- * hashes the plaintext, puts it straight on Walrus, and only then tells the
- * backend the resulting metadata (filename, hash, blob id).
+ * Client-direct upload: the backend never receives plaintext (or any bytes
+ * at all). The browser hashes the plaintext, encrypts it with a fresh
+ * AES-256-GCM key, puts the ciphertext on Walrus, and only then tells the
+ * backend the resulting metadata (filename, plaintext hash, blob id, key).
+ * See docs/security-assessment.md "Walrus decentralized storage" for what
+ * this key does and does not protect against — it's a locally-managed key,
+ * not Seal-backed access control.
  */
 export async function uploadDocumentViaWalrus(teamId: number, file: File): Promise<DocumentResponse> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const documentHash = await sha256Hex(bytes);
-    const { blobId, blobObjectId } = await uploadBlobToWalrus(bytes);
+    const plaintext = new Uint8Array(await file.arrayBuffer());
+    const documentHash = await sha256Hex(plaintext);
+    const { ciphertextWithIv, keyBase64 } = await encryptBytes(plaintext);
+    const { blobId, blobObjectId } = await uploadBlobToWalrus(ciphertextWithIv);
 
     return api.uploadToTeamWalrus(teamId, {
         filename: file.name,
@@ -19,14 +24,16 @@ export async function uploadDocumentViaWalrus(teamId: number, file: File): Promi
         documentHash,
         walrusBlobId: blobId,
         walrusBlobObjectId: blobObjectId,
-        size: bytes.byteLength,
+        size: plaintext.byteLength,
+        encryptionKeyBase64: keyBase64,
     });
 }
 
 export async function amendDocumentViaWalrus(documentId: number, file: File): Promise<DocumentResponse> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const documentHash = await sha256Hex(bytes);
-    const { blobId, blobObjectId } = await uploadBlobToWalrus(bytes);
+    const plaintext = new Uint8Array(await file.arrayBuffer());
+    const documentHash = await sha256Hex(plaintext);
+    const { ciphertextWithIv, keyBase64 } = await encryptBytes(plaintext);
+    const { blobId, blobObjectId } = await uploadBlobToWalrus(ciphertextWithIv);
 
     return api.amendDocumentWalrus(documentId, {
         filename: file.name,
@@ -34,19 +41,28 @@ export async function amendDocumentViaWalrus(documentId: number, file: File): Pr
         documentHash,
         walrusBlobId: blobId,
         walrusBlobObjectId: blobObjectId,
-        size: bytes.byteLength,
+        size: plaintext.byteLength,
+        encryptionKeyBase64: keyBase64,
     });
 }
 
-/** Fetches the stored blob back from Walrus as plaintext bytes. */
+/**
+ * Fetches the stored blob back from Walrus and returns plaintext bytes —
+ * decrypting first if the document was encrypted (encryptionKeyBase64 set).
+ * An unencrypted (slice A) document has no key and is returned as-is.
+ */
 export async function fetchDocumentBytes(doc: DocumentResponse): Promise<Uint8Array> {
     if (!doc.walrusBlobId) {
         throw new Error("This document has no Walrus blob to fetch.");
     }
-    return downloadBlobFromWalrus(doc.walrusBlobId);
+    const stored = await downloadBlobFromWalrus(doc.walrusBlobId);
+    if (!doc.encryptionKeyBase64) {
+        return stored;
+    }
+    return decryptBytes(stored, doc.encryptionKeyBase64);
 }
 
-/** Downloads the stored blob back from Walrus and triggers a browser save. */
+/** Downloads the stored blob back from Walrus (decrypting if needed) and triggers a browser save. */
 export async function downloadDocumentViaWalrus(doc: DocumentResponse): Promise<void> {
     const bytes = await fetchDocumentBytes(doc);
     const blob = new Blob([bytes.buffer as ArrayBuffer], { type: doc.contentType || "application/pdf" });
@@ -61,7 +77,7 @@ export async function downloadDocumentViaWalrus(doc: DocumentResponse): Promise<
     }
 }
 
-/** Downloads the stored blob back from Walrus and re-hashes it against the recorded documentHash. */
+/** Downloads the stored blob back from Walrus (decrypting if needed) and re-hashes it against the recorded documentHash. */
 export async function verifyDocumentViaWalrus(doc: DocumentResponse): Promise<VerifyResponse> {
     const bytes = await fetchDocumentBytes(doc);
     const documentHash = await sha256Hex(bytes);

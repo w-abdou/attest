@@ -25,6 +25,13 @@ public record DocumentResponse(
         String storageBackend,
         String walrusBlobId,
         String walrusBlobObjectId,
+        // Present only for a client-encrypted Walrus document. Handed back to
+        // any caller who could already read this document's other metadata
+        // (i.e. the same team-membership authorization as everything else on
+        // this DTO) — there is no per-signer access control on the key yet,
+        // that requires Seal. See docs/security-assessment.md "Walrus
+        // decentralized storage".
+        String encryptionKeyBase64,
         Instant createdAt
 ) {
     public static DocumentResponse from(Document doc) {
@@ -48,6 +55,7 @@ public record DocumentResponse(
                 doc.getStorageBackend() == null ? "LOCAL" : doc.getStorageBackend(),
                 doc.getWalrusBlobId(),
                 doc.getWalrusBlobObjectId(),
+                doc.getEncryptionKeyBase64(),
                 doc.getCreatedAt()
         );
     }

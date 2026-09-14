@@ -41,6 +41,11 @@ export interface DocumentResponse {
   storageBackend: "LOCAL" | "WALRUS";
   walrusBlobId: string | null;
   walrusBlobObjectId: string | null;
+  // Present only for a client-encrypted Walrus document (slice B) — null for
+  // an unencrypted Walrus document (slice A) or any LOCAL document. This is a
+  // locally-managed key, not real per-signer access control — see
+  // docs/security-assessment.md "Walrus decentralized storage".
+  encryptionKeyBase64: string | null;
   createdAt: string;
 }
 
@@ -55,6 +60,7 @@ export interface WalrusUploadRequest {
   walrusBlobId: string;
   walrusBlobObjectId: string | null;
   size: number;
+  encryptionKeyBase64: string | null;
 }
 export interface AuditLogResponse { id: number; documentId: number; action: string; performedBy: number; timestamp: string; detail: string | null; }
 export interface VerifyResponse { documentId: number; verified: boolean; result: string; }

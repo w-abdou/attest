@@ -21,6 +21,8 @@ import { InlineSelect } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { FileIcon, PlusIcon, TrashIcon, UploadIcon, UsersIcon } from "@/components/ui/Icons";
 import { displayIdentity } from "@/lib/format";
+import { isWalrusConfigured } from "@/lib/walrusClient";
+import { uploadDocumentViaWalrus } from "@/lib/walrusDocuments";
 
 const TEAM_ROLES: { value: TeamRole; label: string; blurb: string }[] = [
   { value: "TEAM_VIEWER", label: "Viewer", blurb: "View and verify documents only" },
@@ -139,7 +141,9 @@ function TeamDetailContent() {
     if (!file) return;
     setUploading(true);
     try {
-      const uploaded = await api.uploadToTeam(teamId, file);
+      const uploaded = isWalrusConfigured()
+        ? await uploadDocumentViaWalrus(teamId, file)
+        : await api.uploadToTeam(teamId, file);
       setFile(null);
       setShowUpload(false);
       toast.success(`${uploaded.filename} uploaded as version ${uploaded.version}.`);

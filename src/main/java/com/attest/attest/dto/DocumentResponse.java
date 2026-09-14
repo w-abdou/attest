@@ -22,6 +22,9 @@ public record DocumentResponse(
         String onchainPackageId,
         String onchainNetwork,
         String onchainTxDigest,
+        String storageBackend,
+        String walrusBlobId,
+        String walrusBlobObjectId,
         Instant createdAt
 ) {
     public static DocumentResponse from(Document doc) {
@@ -42,6 +45,9 @@ public record DocumentResponse(
                 doc.getOnchainPackageId(),
                 doc.getOnchainNetwork(),
                 doc.getOnchainTxDigest(),
+                doc.getStorageBackend() == null ? "LOCAL" : doc.getStorageBackend(),
+                doc.getWalrusBlobId(),
+                doc.getWalrusBlobObjectId(),
                 doc.getCreatedAt()
         );
     }

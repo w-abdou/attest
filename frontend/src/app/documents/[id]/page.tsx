@@ -9,6 +9,9 @@ import {
   ApiError, AuditLogResponse, DocumentResponse, SignatureResponse,
   TeamMemberResponse, VerifyResponse,
 } from "@/lib/api";
+import { sha256Hex } from "@/lib/clientCrypto";
+import { amendDocumentViaWalrus, downloadDocumentViaWalrus, verifyDocumentViaWalrus } from "@/lib/walrusDocuments";
+import { isWalrusConfigured } from "@/lib/walrusClient";
 import RequireAuth from "@/components/RequireAuth";
 import PageHeader from "@/components/PageHeader";
 import SignatureProgress from "@/components/SignatureProgress";
@@ -27,7 +30,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import {
-  AlertIcon, CheckCircleIcon, HistoryIcon, LayersIcon, PenIcon,
+  AlertIcon, CheckCircleIcon, CloudIcon, DownloadIcon, HistoryIcon, LayersIcon, PenIcon,
   ShieldIcon, UploadIcon, UsersIcon,
 } from "@/components/ui/Icons";
 import { displayIdentity, formatDateTime, shortHash, timeAgo } from "@/lib/format";
@@ -56,6 +59,9 @@ function DocumentDetailContent() {
 
   const [amendFile, setAmendFile] = useState<File | null>(null);
   const [amending, setAmending] = useState(false);
+
+  const [downloading, setDownloading] = useState(false);
+  const [checkingStoredBlob, setCheckingStoredBlob] = useState(false);
 
   const [selectedSigners, setSelectedSigners] = useState<number[]>([]);
   const [savingSigners, setSavingSigners] = useState(false);
@@ -119,11 +125,16 @@ function DocumentDetailContent() {
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
-    if (!verifyFile) return;
+    if (!verifyFile || !doc) return;
     setVerifying(true);
     setVerifyResult(null);
     try {
-      const result = await api.verifyDocument(documentId, verifyFile);
+      // Same check either way — "does this file's hash match what's on
+      // record" — Walrus-backed documents just send the hash instead of the
+      // file, since the backend never has bytes to hash itself for them.
+      const result = doc.storageBackend === "WALRUS"
+        ? await api.verifyDocumentHash(documentId, await sha256Hex(new Uint8Array(await verifyFile.arrayBuffer())))
+        : await api.verifyDocument(documentId, verifyFile);
       setVerifyResult(result);
       await loadAll(); // Verification is an audited event.
     } catch (err) {
@@ -133,12 +144,41 @@ function DocumentDetailContent() {
     }
   }
 
+  async function handleVerifyStoredBlob() {
+    if (!doc) return;
+    setCheckingStoredBlob(true);
+    setVerifyResult(null);
+    try {
+      const result = await verifyDocumentViaWalrus(doc);
+      setVerifyResult(result);
+      await loadAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not fetch the stored blob from Walrus.");
+    } finally {
+      setCheckingStoredBlob(false);
+    }
+  }
+
+  async function handleDownload() {
+    if (!doc) return;
+    setDownloading(true);
+    try {
+      await downloadDocumentViaWalrus(doc);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download this document from Walrus.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function handleAmend(e: React.FormEvent) {
     e.preventDefault();
     if (!amendFile) return;
     setAmending(true);
     try {
-      const newVersion = await api.amendDocument(documentId, amendFile);
+      const newVersion = isWalrusConfigured()
+        ? await amendDocumentViaWalrus(documentId, amendFile)
+        : await api.amendDocument(documentId, amendFile);
       toast.success(`Version ${newVersion.version} created. Signatures did not carry over.`);
       router.push(`/documents/${newVersion.id}`);
     } catch (err) {
@@ -251,8 +291,22 @@ function DocumentDetailContent() {
             }
         />
 
-        <div className="mb-6">
+        <div className="mb-6 space-y-3">
           <HashDisplay hash={doc.documentHash} full />
+          {doc.storageBackend === "WALRUS" && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3">
+                <Badge tone="blue"><CloudIcon className="text-xs" /> Stored on Walrus</Badge>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-500" title={doc.walrusBlobId ?? undefined}>
+                  blob {shortHash(doc.walrusBlobId ?? "", 10)}
+                </span>
+                <Button size="sm" variant="secondary" loading={downloading} onClick={handleDownload} icon={<DownloadIcon />}>
+                  Download
+                </Button>
+                <Button size="sm" variant="secondary" loading={checkingStoredBlob} onClick={handleVerifyStoredBlob} icon={<ShieldIcon />}>
+                  Verify stored copy
+                </Button>
+              </div>
+          )}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

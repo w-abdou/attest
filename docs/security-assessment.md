@@ -160,6 +160,96 @@ things worth being explicit about:
   Adding a team member by username, email, or address all resolve to the same
   underlying Sui address before anything on-chain happens.
 
+## Walrus decentralized storage (slice A: unencrypted blob store/retrieve)
+
+Documents can now be stored on Walrus instead of the local disk, client-direct:
+the browser uploads the PDF straight to Walrus and only tells the backend
+`{ filename, contentType, documentHash, walrusBlobId, walrusBlobObjectId, size }`
+— the backend never receives file bytes for a Walrus-backed document. A few
+things worth being explicit about:
+
+- **`documentHash` is now client-computed for Walrus uploads, not server-computed.**
+  For the pre-existing local-disk path (`POST /api/documents/team/{teamId}`,
+  multipart), nothing changed — the backend still hashes the bytes it receives.
+  For the new Walrus path (`POST /api/documents/team/{teamId}/walrus`, JSON),
+  there are no bytes to hash server-side, so the browser computes SHA-256 over
+  the plaintext *before* it ever leaves the browser (and before any encryption,
+  once slice B lands) and sends that hash directly. This preserves every
+  existing integrity/envelope guarantee (`documentHash`, `policyHash`,
+  `envelopeHash`, the signing binding in `DocumentService.sign`/
+  `recomputeStatus`) unchanged — none of that logic reads `storageReference` or
+  cares where the bytes physically live.
+- **Server-side PDF validation is necessarily weaker for Walrus uploads.** The
+  existing local-disk path magic-byte-sniffs the actual file (`%PDF-` prefix)
+  because it has the bytes. A Walrus upload gives the backend no bytes to
+  sniff — `validateWalrusUploadRequest` can only check the claimed
+  content-type, size, and hash *shape* (64 lowercase hex chars), not that the
+  blob is actually a well-formed PDF. That check has to happen client-side,
+  before upload, if it's going to happen at all. This is an inherent trade-off
+  of "the backend never sees plaintext," not an oversight.
+- **`storageBackend` distinguishes the two paths** (`"LOCAL"` or `"WALRUS"`,
+  null treated as `"LOCAL"` for every pre-existing row — no backfill needed).
+  `LocalDiskStorageService` is untouched and remains the default/fallback;
+  nothing forces a deployment to use Walrus. The frontend decides which upload
+  flow to use based on whether a Walrus signer is configured
+  (`NEXT_PUBLIC_WALRUS_SIGNER_SECRET_KEY`) — see `frontend/README` (or the PR
+  description) for the exact env vars and testnet funding steps.
+- **Verify gets a hash-only sibling** (`POST /api/documents/{id}/verify-hash`)
+  alongside the existing file-upload `POST /api/documents/{id}/verify`. For a
+  Walrus-backed document the browser has already downloaded and (once slice B
+  lands) decrypted the blob, so it can hash the plaintext itself and send just
+  the hash rather than re-uploading the whole file — same comparison, same
+  audit logging (`VERIFY_SUCCESS`/`VERIFY_FAILED`), just no bytes in transit to
+  the backend either way.
+- **The Walrus storage signer is a dedicated, app-managed keypair — not the
+  user's own wallet.** `@mysten/walrus`'s `writeBlob()`/`readBlob()` need a raw
+  `Signer` (a keypair capable of signing arbitrary bytes) to pay for and
+  register/certify a blob on-chain; a browser wallet (Slush) only exposes
+  `signTransaction`/`signAndExecuteTransaction` over the wallet-standard
+  extension API and never hands out a private key, so it cannot satisfy that
+  interface. Rather than hand-roll the lower-level register/upload-slivers/
+  certify transaction sequence against real testnet infra (untested surface
+  area, no SDK safety net), Attest uses one dedicated Sui keypair — funded with
+  testnet SUI (gas) and WAL (storage payment) — purely to pay for and certify
+  Walrus blobs. This keypair has no bearing on document identity or signing:
+  the user's own connected wallet still signs every envelope/on-chain-register/
+  sign action exactly as before. The storage keypair's secret lives in a
+  frontend env var and is a **testnet-only convenience** — it must not be
+  reused for anything else and must not be treated as production-grade key
+  management.
+- **Uploads go through the public testnet upload relay; downloads go through
+  the public testnet aggregator — neither talks to Walrus storage nodes
+  directly.** Walrus testnet has on the order of 100 independent storage
+  nodes; writing or reading a blob the "raw" way (`WalrusClient.writeBlob`/
+  `readBlob`) means opening a direct connection to a large fraction of them,
+  which plenty of real browsers (and any sandboxed/firewalled environment,
+  including the one this was built and verified in) cannot do reliably — some
+  subset of those hosts is routinely unreachable. Mysten runs a public upload
+  relay (`https://upload-relay.testnet.walrus.space`, configured via
+  `WalrusClient`'s `uploadRelay` option) and a public aggregator
+  (`https://aggregator.walrus-testnet.walrus.space`, a plain HTTPS GET at
+  `/v1/blobs/{blobId}`) for exactly this — the client talks to one HTTPS host
+  per direction, and the relay/aggregator does the per-node fan-out. This is
+  the officially recommended shape for a browser client, not a workaround. It
+  was also how slice A was actually proven end-to-end: a real upload through
+  the relay, followed by a real download through the aggregator, byte-for-byte
+  and hash-identical to the original plaintext, against live Walrus testnet
+  infrastructure.
+- **Manual migration required for existing databases**, same pattern as the
+  wallet-native-auth and username migrations above: `documents.storage_reference`
+  is now nullable (a Walrus-backed document has no local path), and
+  `ddl-auto=update` never relaxes an existing `NOT NULL` constraint on a
+  pre-existing column:
+
+```sql
+ALTER TABLE documents ALTER COLUMN storage_reference DROP NOT NULL;
+```
+
+  Without this, every Walrus upload fails with a
+  `DataIntegrityViolationException` when the row is inserted with a null
+  `storage_reference`. A brand-new database does not need this — the column is
+  only ever created nullable going forward.
+
 ## Test evidence
 
-Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, and the sixth-request rate-limit boundary. A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.
+Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, the sixth-request rate-limit boundary, and the Walrus-backed upload/amend/verify-hash paths (metadata recorded with no storage-service call made, hash-format/content-type rejection, viewer-cannot-upload, signer carryover on amend). A live upload → download round-trip against real Walrus testnet infrastructure (via the public upload relay and aggregator) was run manually and confirmed byte-for-byte and hash-identical — this is not part of `./mvnw test`/`npm run build` and does not re-run automatically. A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.

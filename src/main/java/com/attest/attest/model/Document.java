@@ -23,8 +23,27 @@ public class Document {
     @Column(nullable = false)
     private String contentType;
 
-    @Column(nullable = false)
+    // Nullable: a Walrus-backed document (storageBackend = "WALRUS") never has a
+    // local path — the browser uploads straight to Walrus, so the backend never
+    // sees the bytes and has nothing to store on disk. Requires the same manual
+    // migration as any other newly-nullable column on an existing table
+    // (ALTER TABLE documents ALTER COLUMN storage_reference DROP NOT NULL) —
+    // see docs/security-assessment.md.
+    @Column(nullable = true)
     private String storageReference;
+
+    // "LOCAL" (default, existing documents) or "WALRUS". Null is treated as
+    // "LOCAL" everywhere this is read, so pre-existing rows need no backfill.
+    @Column(nullable = true)
+    private String storageBackend;
+
+    // Walrus blob id (nullable — only set for storageBackend = "WALRUS").
+    @Column(nullable = true)
+    private String walrusBlobId;
+
+    // The on-chain Sui object id for the certified Blob (nullable, WALRUS only).
+    @Column(nullable = true)
+    private String walrusBlobObjectId;
 
     @Column(nullable = false)
     private Long ownerId;

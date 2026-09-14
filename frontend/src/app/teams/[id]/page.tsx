@@ -20,6 +20,7 @@ import { RoleBadge } from "@/components/ui/Badge";
 import { InlineSelect } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { FileIcon, PlusIcon, TrashIcon, UploadIcon, UsersIcon } from "@/components/ui/Icons";
+import { displayIdentity, shortHash } from "@/lib/format";
 
 const TEAM_ROLES: { value: TeamRole; label: string; blurb: string }[] = [
   { value: "TEAM_VIEWER", label: "Viewer", blurb: "View and verify documents only" },
@@ -39,7 +40,7 @@ function TeamDetailContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [newEmail, setNewEmail] = useState("");
+  const [newIdentifier, setNewIdentifier] = useState("");
   const [newRole, setNewRole] = useState<TeamRole>("TEAM_SIGNER");
   const [addingMember, setAddingMember] = useState(false);
 
@@ -88,13 +89,13 @@ function TeamDetailContent() {
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
-    const email = newEmail.trim();
-    if (!email) return;
+    const identifier = newIdentifier.trim();
+    if (!identifier) return;
     setAddingMember(true);
     try {
-      await api.addMember(teamId, email, newRole);
-      setNewEmail("");
-      toast.success(`${email} added to ${team?.name}.`);
+      await api.addMember(teamId, identifier, newRole);
+      setNewIdentifier("");
+      toast.success(`${identifier} added to ${team?.name}.`);
       await load();
     } catch (err) {
       toast.error(
@@ -110,7 +111,7 @@ function TeamDetailContent() {
   async function handleRoleChange(member: TeamMemberResponse, role: TeamRole) {
     try {
       await api.updateMemberRole(teamId, member.userId, role);
-      toast.success(`${member.email} is now ${TEAM_ROLES.find((r) => r.value === role)?.label}.`);
+      toast.success(`${displayIdentity(member.email, member.suiAddress)} is now ${TEAM_ROLES.find((r) => r.value === role)?.label}.`);
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not change that role.");
@@ -123,7 +124,7 @@ function TeamDetailContent() {
     setRemoving(true);
     try {
       await api.removeMember(teamId, pendingRemoval.userId);
-      toast.success(`${pendingRemoval.email} removed from ${team?.name}.`);
+      toast.success(`${displayIdentity(pendingRemoval.email, pendingRemoval.suiAddress)} removed from ${team?.name}.`);
       setPendingRemoval(null);
       await load();
     } catch (err) {
@@ -279,20 +280,22 @@ function TeamDetailContent() {
                   return (
                       <li key={member.userId} className="px-4 py-3 transition-colors hover:bg-ink-50/60">
                         <div className="flex items-center gap-2.5">
-                          <Avatar email={member.email} size="sm" />
+                          <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-ink-900">
-                              {member.email.split("@")[0]}
+                              {member.email ?? shortHash(member.suiAddress ?? "", 6)}
                               {isMe && <span className="ml-1 text-xs font-normal text-ink-400">(you)</span>}
                             </p>
-                            <p className="truncate text-xs text-ink-400">{member.email}</p>
+                            {member.email && (
+                                <p className="truncate text-xs text-ink-400">{member.email}</p>
+                            )}
                           </div>
                           {!isTeamAdmin && <RoleBadge role={member.teamRole} />}
                         </div>
                         {isTeamAdmin && (
                             <div className="mt-2 flex items-center gap-1.5 pl-[42px]">
                               <InlineSelect
-                                  aria-label={`Team role for ${member.email}`}
+                                  aria-label={`Team role for ${displayIdentity(member.email, member.suiAddress)}`}
                                   value={member.teamRole}
                                   onChange={(e) => handleRoleChange(member, e.target.value as TeamRole)}
                                   className="flex-1"
@@ -303,7 +306,7 @@ function TeamDetailContent() {
                               </InlineSelect>
                               <button
                                   onClick={() => setPendingRemoval(member)}
-                                  aria-label={`Remove ${member.email}`}
+                                  aria-label={`Remove ${displayIdentity(member.email, member.suiAddress)}`}
                                   className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-red-50 hover:text-red-600"
                               >
                                 <TrashIcon className="text-sm" />
@@ -318,15 +321,15 @@ function TeamDetailContent() {
               {isTeamAdmin && (
                   <CardBody className="border-t border-ink-200 bg-ink-50/60">
                     <form onSubmit={handleAddMember} className="space-y-2">
-                      <label htmlFor="add-member-email" className="block text-xs font-medium text-ink-700">
-                        Add a member by email
+                      <label htmlFor="add-member-identifier" className="block text-xs font-medium text-ink-700">
+                        Add a member by email or Sui address
                       </label>
                       <input
-                          id="add-member-email"
-                          type="email"
-                          value={newEmail}
-                          onChange={(e) => setNewEmail(e.target.value)}
-                          placeholder="person@company.com"
+                          id="add-member-identifier"
+                          type="text"
+                          value={newIdentifier}
+                          onChange={(e) => setNewIdentifier(e.target.value)}
+                          placeholder="person@company.com or 0x…"
                           className="h-9 w-full rounded-lg border border-ink-300 bg-white px-3 text-sm placeholder:text-ink-400 transition-colors hover:border-ink-400 focus:border-sui-400 focus:outline-none focus:ring-4 focus:ring-sui-400/15"
                       />
                       <div className="flex items-center gap-1.5">
@@ -342,7 +345,7 @@ function TeamDetailContent() {
                         </InlineSelect>
                         <Button
                             type="submit" size="sm" className="h-9"
-                            loading={addingMember} disabled={!newEmail.trim()} icon={<PlusIcon />}
+                            loading={addingMember} disabled={!newIdentifier.trim()} icon={<PlusIcon />}
                         >
                           Add
                         </Button>
@@ -359,7 +362,7 @@ function TeamDetailContent() {
 
         <ConfirmDialog
             open={pendingRemoval !== null}
-            title={`Remove ${pendingRemoval?.email}?`}
+            title={`Remove ${pendingRemoval ? displayIdentity(pendingRemoval.email, pendingRemoval.suiAddress) : "member"}?`}
             description="They lose access to every document in this team immediately. Signatures they have already recorded are kept."
             confirmLabel="Remove member"
             busy={removing}

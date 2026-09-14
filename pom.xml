@@ -63,6 +63,16 @@
 			<artifactId>spring-security-crypto</artifactId>
 		</dependency>
 
+		<!-- Sui's personal-message signing scheme hashes with Blake2b-256, which the
+		     JDK does not ship. Ed25519 verification itself uses the JDK's built-in
+		     EdDSA support (java.security.Signature) — BouncyCastle is only needed
+		     for this one hash primitive. -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.86</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>

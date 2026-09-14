@@ -8,9 +8,9 @@ import Avatar from "./ui/Avatar";
 import Badge from "./ui/Badge";
 import { buttonClass } from "./ui/Button";
 import {
-  HomeIcon, UsersIcon, FileIcon, SettingsIcon, LogOutIcon, MenuIcon, CloseIcon, ShieldIcon,
+  HomeIcon, UsersIcon, FileIcon, LogOutIcon, MenuIcon, CloseIcon, ShieldIcon,
 } from "./ui/Icons";
-import { ROLE_LABEL } from "@/lib/format";
+import { ROLE_LABEL, displayIdentity, shortHash } from "@/lib/format";
 
 interface NavItem { href: string; label: string; icon: React.ReactNode; adminOnly?: boolean; }
 
@@ -107,7 +107,7 @@ export default function NavBar() {
                   aria-label="Account menu"
                   className="flex items-center gap-2 rounded-full p-0.5 transition-colors hover:bg-ink-100"
                 >
-                  <Avatar email={user.email} />
+                  <Avatar identity={displayIdentity(user.email, user.suiAddress)} />
                 </button>
 
                 {menuOpen && (
@@ -116,7 +116,15 @@ export default function NavBar() {
                     className="animate-rise absolute right-0 mt-2 w-60 overflow-hidden rounded-xl border border-ink-200 bg-white shadow-lg shadow-ink-900/10"
                   >
                     <div className="border-b border-ink-100 px-4 py-3">
-                      <p className="truncate text-sm font-medium text-ink-900">{user.email}</p>
+                      {user.email && (
+                        <p className="truncate text-sm font-medium text-ink-900">{user.email}</p>
+                      )}
+                      <p
+                        className={`truncate font-mono text-xs text-ink-500 ${user.email ? "mt-0.5" : "text-sm font-medium text-ink-900"}`}
+                        title={user.suiAddress}
+                      >
+                        {user.email ? shortHash(user.suiAddress, 8) : shortHash(user.suiAddress, 10)}
+                      </p>
                       <div className="mt-1.5 flex items-center gap-2">
                         <Badge tone={user.role === "ADMIN" ? "blue" : "neutral"}>
                           {ROLE_LABEL[user.role] ?? user.role}
@@ -146,10 +154,7 @@ export default function NavBar() {
               </button>
             </>
           ) : (
-            <>
-              <Link href="/login" className={buttonClass("ghost", "sm")}>Log in</Link>
-              <Link href="/register" className={buttonClass("primary", "sm")}>Get started</Link>
-            </>
+            <Link href="/login" className={buttonClass("primary", "sm")}>Sign in</Link>
           )}
         </div>
       </div>

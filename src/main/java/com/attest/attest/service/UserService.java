@@ -1,43 +1,19 @@
 package com.attest.attest.service;
 
-import com.attest.attest.dto.LoginRequest;
-import com.attest.attest.dto.RegisterRequest;
-import com.attest.attest.exception.EmailAlreadyRegisteredException;
-import com.attest.attest.exception.InvalidCredentialsException;
 import com.attest.attest.exception.InvalidRoleException;
 import com.attest.attest.exception.UserNotFoundException;
 import com.attest.attest.model.Role;
 import com.attest.attest.model.User;
 import com.attest.attest.repository.UserRepository;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;
-    }
-
-    public User register(RegisterRequest request) {
-        if (userRepository.findByEmail(request.email()).isPresent()) {
-            throw new EmailAlreadyRegisteredException(request.email());
-        }
-
-        User user = new User();
-        user.setEmail(request.email());
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setRole(Role.VIEWER);
-        return userRepository.save(user);
-    }
-
-    public User login(LoginRequest request) {
-        return userRepository.findByEmail(request.email())
-                .filter(user -> passwordEncoder.matches(request.password(), user.getPasswordHash()))
-                .orElseThrow(InvalidCredentialsException::new);
     }
 
     /**
@@ -60,23 +36,24 @@ public class UserService {
     }
 
     /**
-     * Creates a single ADMIN account at startup if both an email and password are
-     * configured (see app.bootstrap.* properties) and no user with that email exists
-     * yet. This is the only way an ADMIN account can ever be created — never through
-     * a public API request. Does nothing if not configured, or if that email is
-     * already taken (so it's safe to run on every restart).
+     * Pre-creates a single ADMIN account for the configured bootstrap address, if
+     * one is configured and no user with that address exists yet. This does NOT
+     * grant access by itself — logging in still requires proving control of that
+     * address via WalletAuthService, exactly like any other account. All this does
+     * is make sure that when the real owner of that address does log in for the
+     * first time, find-or-create finds this pre-labeled row (ADMIN) instead of
+     * creating a fresh one (SIGNER). Safe to run on every restart.
      */
-    public void bootstrapAdminIfConfigured(String email, String rawPassword) {
-        if (email == null || email.isBlank() || rawPassword == null || rawPassword.isBlank()) {
+    public void bootstrapAdminIfConfigured(String suiAddress) {
+        if (suiAddress == null || suiAddress.isBlank()) {
             return;
         }
-        if (userRepository.findByEmail(email).isPresent()) {
+        if (userRepository.findBySuiAddress(suiAddress).isPresent()) {
             return;
         }
 
         User admin = new User();
-        admin.setEmail(email);
-        admin.setPasswordHash(passwordEncoder.encode(rawPassword));
+        admin.setSuiAddress(suiAddress);
         admin.setRole(Role.ADMIN);
         userRepository.save(admin);
     }

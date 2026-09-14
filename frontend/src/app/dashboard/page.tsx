@@ -17,6 +17,7 @@ import { RoleBadge } from "@/components/ui/Badge";
 import {
   CheckCircleIcon, ChevronRightIcon, FileIcon, PenIcon, PlusIcon, UsersIcon,
 } from "@/components/ui/Icons";
+import { displayIdentity } from "@/lib/format";
 
 /** Cap the fan-out when checking which pending documents need *your* signature. */
 const PENDING_LOOKUP_LIMIT = 25;
@@ -96,7 +97,7 @@ function DashboardContent() {
     <div className="animate-fade-in">
       <PageHeader
         title={`Welcome back`}
-        description={user?.email}
+        description={user ? displayIdentity(user.email, user.suiAddress) : undefined}
         action={<LinkButton href="/teams" size="sm" icon={<PlusIcon />}>New team</LinkButton>}
       />
 

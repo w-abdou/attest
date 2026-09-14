@@ -12,6 +12,7 @@ import Badge from "@/components/ui/Badge";
 import { Input, Select } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { SettingsIcon } from "@/components/ui/Icons";
+import { displayIdentity } from "@/lib/format";
 
 const GLOBAL_ROLES: { value: Role; label: string; blurb: string }[] = [
   { value: "VIEWER", label: "Viewer", blurb: "The default for every new account." },
@@ -33,7 +34,7 @@ function AdminContent() {
     try {
       const updated = await api.updateUserRole(Number(userId), role);
       setResult(updated);
-      toast.success(`${updated.email} is now ${updated.role}.`);
+      toast.success(`${displayIdentity(updated.email, updated.suiAddress)} is now ${updated.role}.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not update that role.");
     } finally {
@@ -85,7 +86,7 @@ function AdminContent() {
 
             {result && (
               <Alert tone="success" className="mt-4" title="Role updated">
-                {result.email} (user id {result.id}) is now {result.role}.
+                {displayIdentity(result.email, result.suiAddress)} (user id {result.id}) is now {result.role}.
               </Alert>
             )}
           </CardBody>

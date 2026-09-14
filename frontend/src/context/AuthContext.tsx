@@ -4,22 +4,35 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, 
 import * as api from "@/lib/api";
 import type { Role } from "@/lib/api";
 
+export type WalletKind = "slush" | "google";
+
 interface AuthUser {
     id: number;
-    email: string;
+    email: string | null;
+    suiAddress: string;
     role: Role;
 }
 
 interface AuthContextValue {
     user: AuthUser | null;
     loading: boolean;
-    login: (email: string, password: string) => Promise<void>;
-    register: (email: string, password: string) => Promise<void>;
+    /**
+     * The whole login (and, for a brand-new address, account creation) flow:
+     * connect the chosen wallet, have it sign a fresh server-issued challenge,
+     * and hand the signature to the backend to verify. Throws on any step's
+     * failure — the caller decides how to present that.
+     */
+    loginWithWallet: (kind: WalletKind) => Promise<void>;
     logout: () => void;
 }
 
 const TOKEN_KEY = "attest_token";
 const USER_KEY = "attest_user";
+
+const WALLET_NAME_PATTERN: Record<WalletKind, RegExp> = {
+    slush: /slush/i,
+    google: /google/i,
+};
 
 /* ---------------------------------------------------------------------------
    localStorage is an external store, so it is read through useSyncExternalStore
@@ -75,30 +88,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // placeholder instead of flashing the logged-out navigation.
     const hydrated = useSyncExternalStore(subscribe, alwaysTrue, alwaysFalse);
 
-    const login = useCallback(async (email: string, password: string) => {
-        const result = await api.login(email, password);
-        const authUser: AuthUser = { id: result.id, email: result.email, role: result.role };
+    const loginWithWallet = useCallback(async (kind: WalletKind) => {
+        // Imported dynamically, not at module scope: dappKit.ts's own module-level
+        // createDAppKit() call is documented as browser-only, and AuthProvider sits
+        // at the root layout with no ssr:false boundary — every page (including
+        // ones with no wallet UI at all) would otherwise evaluate it during static
+        // generation, which is exactly what "Skipping wallet initializer" during
+        // `next build` was — a benign but real sign this file broke that invariant.
+        const { dAppKit } = await import("@/lib/dappKit");
+
+        const pattern = WALLET_NAME_PATTERN[kind];
+        const wallet = dAppKit.stores.$wallets.get().find((w) => pattern.test(w.name));
+        if (!wallet) {
+            throw new Error(
+                kind === "slush"
+                    ? "Slush wallet was not detected. Install the Slush browser extension and try again."
+                    : "Google sign-in is not available right now. Please try again shortly.",
+            );
+        }
+
+        // connectWallet is the only step that can prompt the user (extension
+        // popup, or the Google OAuth pop-up for the Enoki wallet). Once
+        // connected, dApp Kit persists this to localStorage (see dappKit.ts),
+        // so this prompt is a one-time cost, not something later signing or
+        // uploading needs to repeat.
+        const { accounts } = await dAppKit.connectWallet({ wallet });
+        const account = accounts[0];
+        if (!account) {
+            throw new Error("The wallet did not return an account to sign in with.");
+        }
+
+        const challenge = await api.getWalletChallenge();
+        const { signature } = await dAppKit.signPersonalMessage({
+            account,
+            message: new TextEncoder().encode(challenge.message),
+        });
+
+        const result = await api.verifyWalletSignature(challenge.nonce, account.address, signature);
+        if (!result.suiAddress) {
+            // Structurally impossible — verify always finds-or-creates a user by
+            // address — but never silently trust an assumption in an auth path.
+            throw new Error("Sign-in succeeded but the server did not return an address.");
+        }
+
+        const authUser: AuthUser = {
+            id: result.id, email: result.email, suiAddress: result.suiAddress, role: result.role,
+        };
         localStorage.setItem(TOKEN_KEY, result.token);
         localStorage.setItem(USER_KEY, JSON.stringify(authUser));
         emit();
     }, []);
 
-    const register = useCallback(async (email: string, password: string) => {
-        await api.register(email, password);
-        // Registration always returns a VIEWER account — log the person straight in
-        // afterward instead of making them re-type their credentials.
-        await login(email, password);
-    }, [login]);
-
     const logout = useCallback(() => {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
+        // Also forget the connected wallet, so logging out really logs out —
+        // otherwise autoConnect would silently reconnect the same account.
+        localStorage.removeItem("attest_dappkit");
         emit();
+
+        // Dynamically imported for the same reason as in loginWithWallet — this
+        // runs after emit() so the UI reflects "logged out" immediately, without
+        // waiting on the wallet module to load.
+        import("@/lib/dappKit").then(({ dAppKit }) => dAppKit.disconnectWallet()).catch(() => {
+            /* already disconnected, or nothing was connected — fine either way */
+        });
     }, []);
 
     const value = useMemo<AuthContextValue>(
-        () => ({ user, loading: !hydrated, login, register, logout }),
-        [user, hydrated, login, register, logout],
+        () => ({ user, loading: !hydrated, loginWithWallet, logout }),
+        [user, hydrated, loginWithWallet, logout],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

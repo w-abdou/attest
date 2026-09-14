@@ -12,6 +12,13 @@ const GRPC_URLS = {
 export const dAppKit = createDAppKit({
     networks: ["testnet"],
     defaultNetwork: "testnet",
+
+    // Persist the connected wallet/account across reloads and remember it on
+    // startup, so a signed-in user is never asked to reconnect just to sign
+    // or upload — only the very first connect (during login) needs a prompt.
+    autoConnect: true,
+    storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    storageKey: "attest_dappkit",
     createClient(network) {
         return new SuiGrpcClient({ network, baseUrl: GRPC_URLS[network] });
     },

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-
+import RequireAuth from "@/components/RequireAuth";
 
 const WalletPanel = dynamic(
     () => import("@/components/sui/WalletPanel").then((m) => m.WalletPanel),
@@ -10,16 +10,17 @@ const WalletPanel = dynamic(
 
 export default function WalletPage() {
     return (
-        <div className="mx-auto max-w-xl space-y-6">
-            <div>
-                <h1 className="text-xl font-semibold text-ink-900">Sui wallet</h1>
-                <p className="mt-1 text-sm text-ink-600">
-                    Connect a Sui wallet to Attest. This is the groundwork for on-chain
-                    signing — for now it just proves the connection works and reads your
-                    account from the Sui testnet.
-                </p>
+        <RequireAuth>
+            <div className="mx-auto max-w-xl space-y-6">
+                <div>
+                    <h1 className="text-xl font-semibold text-ink-900">Your wallet</h1>
+                    <p className="mt-1 text-sm text-ink-600">
+                        The Sui wallet you signed in with. It also signs on-chain actions like
+                        registering a document or a required signature.
+                    </p>
+                </div>
+                <WalletPanel />
             </div>
-            <WalletPanel />
-        </div>
+        </RequireAuth>
     );
 }

@@ -18,14 +18,14 @@ class RateLimitFilterTests {
         RateLimitFilter filter = new RateLimitFilter();
 
         for (int requestNumber = 1; requestNumber <= 5; requestNumber++) {
-            MockHttpServletRequest request = request("/api/auth/login");
+            MockHttpServletRequest request = request("/api/auth/wallet/verify");
             MockHttpServletResponse response = new MockHttpServletResponse();
             filter.doFilter(request, response, new MockFilterChain());
             assertEquals(200, response.getStatus());
         }
 
         MockHttpServletResponse limitedResponse = new MockHttpServletResponse();
-        filter.doFilter(request("/api/auth/login"), limitedResponse, new MockFilterChain());
+        filter.doFilter(request("/api/auth/wallet/verify"), limitedResponse, new MockFilterChain());
 
         assertEquals(429, limitedResponse.getStatus());
     }

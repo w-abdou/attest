@@ -1,5 +1,7 @@
 package com.attest.attest.exception;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -18,6 +20,8 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<?> handleValidation(MethodArgumentNotValidException ex) {
@@ -96,14 +100,6 @@ public class GlobalExceptionHandler {
         ));
     }
 
-    @ExceptionHandler(EmailAlreadyRegisteredException.class)
-    public ResponseEntity<?> handleEmailTaken(EmailAlreadyRegisteredException ex) {
-        return ResponseEntity.badRequest().body(Map.of(
-                "timestamp", Instant.now().toString(),
-                "error", ex.getMessage()
-        ));
-    }
-
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<?> handleInvalidCredentials(InvalidCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
@@ -136,8 +132,30 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(UnsupportedSignatureSchemeException.class)
+    public ResponseEntity<?> handleUnsupportedSignatureScheme(UnsupportedSignatureSchemeException ex) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(ZkLoginVerificationUnavailableException.class)
+    public ResponseEntity<?> handleZkLoginVerificationUnavailable(ZkLoginVerificationUnavailableException ex) {
+        // The client only ever sees the generic message below — never leak the
+        // verification endpoint's URL or raw upstream error to a caller — but an
+        // operator needs the real reason to diagnose a misconfigured or
+        // unreachable verifier, so log it server-side.
+        log.warn("zkLogin verification unavailable: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", "Could not verify this sign-in with Sui right now. Please try again."
+        ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneric(Exception ex) {
+        log.error("Unhandled exception", ex);
         return ResponseEntity.internalServerError().body(Map.of(
                 "timestamp", Instant.now().toString(),
                 "error", "An unexpected error occurred"

@@ -131,6 +131,35 @@ calls the removed `/api/auth/login` and `/api/auth/register` endpoints and has
 not been updated — it is not part of `./mvnw test` and does not gate anything,
 but it no longer runs successfully end-to-end.
 
+## Usernames
+
+Every account now carries a required, unique, human-friendly handle
+(`^[a-z0-9_]{3,30}$`, stored lowercased, compared case-insensitively). A few
+things worth being explicit about:
+
+- **Required is an application-level guarantee, not a column constraint.**
+  `users.username` has to be nullable, because a brand-new account exists for
+  a moment (right after its first wallet login) before it has chosen one. The
+  frontend's forced-onboarding redirect is what actually makes it required in
+  practice — a user cannot reach any other page until they've set one. This is
+  the same pattern already used for `email`/`passwordHash`.
+- **`POST /api/users/me/username` always acts on the JWT-authenticated caller.**
+  The request body carries only the desired username, never a user id — there
+  is nothing for a client to spoof to rename a different account.
+- **Format and uniqueness are checked in exactly one place** (`UsernameService`),
+  used by both the availability-check endpoint and the actual set endpoint, so
+  a username that passes the check-first call is guaranteed to also pass the
+  real one — no risk of the two drifting out of sync.
+- **`GET /api/users/username-availability` requires authentication** (like
+  every other `/api/users/**` route) and excludes the caller's own current
+  username from the "taken" check, so re-checking what you already have
+  correctly reports available rather than falsely flagging a collision with
+  yourself.
+- **Usernames are off-chain only.** They never appear in a Move call or get
+  written to Sui — on-chain identity stays the address, exactly as before.
+  Adding a team member by username, email, or address all resolve to the same
+  underlying Sui address before anything on-chain happens.
+
 ## Test evidence
 
-Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, and the sixth-request rate-limit boundary. A live PostgreSQL run, a live zkLogin verification against Sui's GraphQL endpoint, and a client-level acceptance test remain deployment checks.
+Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, and the sixth-request rate-limit boundary. A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.

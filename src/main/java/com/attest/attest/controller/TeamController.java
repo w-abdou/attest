@@ -74,8 +74,9 @@ public class TeamController {
 
     private TeamMemberResponse toResponse(TeamMembership membership, Long memberUserId) {
         User user = userRepository.findById(memberUserId).orElse(null);
+        String username = user != null ? user.getUsername() : null;
         String email = user != null ? user.getEmail() : null;
         String suiAddress = user != null ? user.getSuiAddress() : null;
-        return new TeamMemberResponse(memberUserId, email, suiAddress, membership.getTeamRole());
+        return new TeamMemberResponse(memberUserId, username, email, suiAddress, membership.getTeamRole());
     }
 }

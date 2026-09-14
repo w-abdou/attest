@@ -93,13 +93,14 @@ public class DocumentController {
 
         List<SignatureResponse> result = required.stream().map(r -> {
             User u = userRepository.findById(r.getUserId()).orElse(null);
+            String username = u != null ? u.getUsername() : null;
             String email = u != null ? u.getEmail() : "(unknown)";
             String suiAddress = u != null ? u.getSuiAddress() : null;
             var sig = sigs.stream()
                     .filter(s -> s.getSignerId().equals(r.getUserId()))
                     .filter(s -> currentEnvelope != null && currentEnvelope.equals(s.getEnvelopeHash()))
                     .findFirst();
-            return new SignatureResponse(r.getUserId(), email, suiAddress, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
+            return new SignatureResponse(r.getUserId(), username, email, suiAddress, sig.isPresent(), sig.map(DocumentSignature::getSignedAt).orElse(null));
         }).toList();
         return ResponseEntity.ok(result);
     }

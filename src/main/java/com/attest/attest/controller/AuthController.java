@@ -38,6 +38,6 @@ public class AuthController {
         User user = walletAuthService.verifyAndFindOrCreateUser(request);
         String token = jwtService.generateToken(user.getId(), user.getRole().name());
         return ResponseEntity.ok(new LoginResponse(
-                user.getId(), user.getEmail(), user.getSuiAddress(), user.getRole(), token));
+                user.getId(), user.getUsername(), user.getEmail(), user.getSuiAddress(), user.getRole(), token));
     }
 }

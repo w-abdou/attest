@@ -9,6 +9,7 @@ import com.attest.attest.repository.TeamMembershipRepository;
 import com.attest.attest.repository.TeamRepository;
 import com.attest.attest.repository.UserRepository;
 import com.attest.attest.service.TeamService;
+import com.attest.attest.service.UsernameService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +33,10 @@ class TeamServiceSecurityTests {
         teamRepository = mock(TeamRepository.class);
         membershipRepository = mock(TeamMembershipRepository.class);
         userRepository = mock(UserRepository.class);
-        service = new TeamService(teamRepository, membershipRepository, userRepository);
+        // Real UsernameService, not a mock — its normalize() is pure and
+        // deterministic, so using the real thing is simpler and more faithful
+        // than restating its lowercasing rule as a stub.
+        service = new TeamService(teamRepository, membershipRepository, userRepository, new UsernameService(userRepository));
 
         Team team = new Team();
         team.setId(TEAM);
@@ -109,6 +113,41 @@ class TeamServiceSecurityTests {
 
         assertThrows(TeamMembershipException.class,
                 () -> service.addMember(TEAM, address, "TEAM_SIGNER", 1L));
+    }
+
+    @Test
+    void addingByUsernameWorksForAWalletOnlyAccountWithNoEmail() {
+        requesterIsAdmin(1L);
+        User target = new User(); target.setId(4L); target.setUsername("legal_lead");
+        when(userRepository.findByUsername("legal_lead")).thenReturn(Optional.of(target));
+        when(membershipRepository.save(any(TeamMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TeamMembership added = service.addMember(TEAM, "legal_lead", "TEAM_SIGNER", 1L);
+
+        assertEquals(4L, added.getUserId());
+        verify(userRepository, never()).findByEmail(any());
+        verify(userRepository, never()).findBySuiAddress(any());
+    }
+
+    @Test
+    void addingByUsernameIsCaseInsensitive() {
+        requesterIsAdmin(1L);
+        User target = new User(); target.setId(4L); target.setUsername("legal_lead");
+        when(userRepository.findByUsername("legal_lead")).thenReturn(Optional.of(target));
+        when(membershipRepository.save(any(TeamMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TeamMembership added = service.addMember(TEAM, "Legal_Lead", "TEAM_SIGNER", 1L);
+
+        assertEquals(4L, added.getUserId());
+    }
+
+    @Test
+    void addingAnUnregisteredUsernameIsRejected() {
+        requesterIsAdmin(1L);
+        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+        assertThrows(TeamMembershipException.class,
+                () -> service.addMember(TEAM, "ghost", "TEAM_SIGNER", 1L));
     }
 
     @Test

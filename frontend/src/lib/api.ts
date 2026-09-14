@@ -190,9 +190,13 @@ export async function assignSigners(id: number, signerUserIds: number[]): Promis
   });
   return handleNoContent(res);
 }
-export async function signDocument(id: number): Promise<void> {
+// On-chain signing: the caller signs a Move sign() transaction with their wallet,
+// then reports the resulting tx digest + signer address so the backend records it.
+export async function signDocument(id: number, txDigest: string, signerAddress: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/api/documents/${id}/sign`, {
-    method: "POST", headers: { ...authHeaders() },
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ txDigest, signerAddress }),
   });
   return handleNoContent(res);
 }

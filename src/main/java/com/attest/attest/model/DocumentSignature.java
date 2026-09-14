@@ -24,11 +24,16 @@ public class DocumentSignature {
     @Column(nullable = false)
     private Long signerId;
 
-    // The document's envelopeHash at the moment this signature was made. If the
-    // document's envelopeHash later changes (signers reassigned), this signature
-    // no longer matches and is treated as stale/invalid.
     @Column(nullable = true)
     private String envelopeHash;
+
+    // The Sui transaction digest of the on-chain sign() call.
+    @Column(nullable = true)
+    private String onchainTxDigest;
+
+    // The Sui address that signed on-chain (from the connected wallet).
+    @Column(nullable = true)
+    private String signerAddress;
 
     @Column(nullable = false)
     private Instant signedAt = Instant.now();

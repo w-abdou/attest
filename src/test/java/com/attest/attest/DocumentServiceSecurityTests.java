@@ -139,8 +139,11 @@ class DocumentServiceSecurityTests {
     @Test
     void onlyAssignedSignerCanSign() {
         member(5L, TeamRole.TEAM_SIGNER);
+        // The document must be registered on-chain before any signature is accepted.
+        document.setOnchainObjectId("0xproof");
+
         when(signerRepository.findByDocumentIdAndUserId(10L, 5L)).thenReturn(Optional.empty());
-        assertThrows(ForbiddenException.class, () -> service.sign(10L, 5L));
+        assertThrows(ForbiddenException.class, () -> service.sign(10L, 5L, "0xtx", "0xaddr"));
 
         DocumentSigner assignment = new DocumentSigner();
         assignment.setDocumentId(10L);
@@ -149,7 +152,7 @@ class DocumentServiceSecurityTests {
         when(signatureRepository.findByDocumentIdAndSignerId(10L, 5L)).thenReturn(Optional.empty());
         when(signerRepository.findByDocumentId(10L)).thenReturn(List.of(assignment));
         when(signatureRepository.findByDocumentId(10L)).thenReturn(List.of());
-        assertDoesNotThrow(() -> service.sign(10L, 5L));
+        assertDoesNotThrow(() -> service.sign(10L, 5L, "0xtx", "0xaddr"));
         verify(signatureRepository).save(argThat(s -> s.getSignerId().equals(5L)));
     }
 
@@ -166,12 +169,7 @@ class DocumentServiceSecurityTests {
         assertThrows(ForbiddenException.class, () -> service.assignSigners(10L, List.of(7L), 7L));
     }
 
-    /**
-     * The integration test that would have caught the missing-wiring bug:
-     * assign signers -> the document gets an envelopeHash; sign -> signature is
-     * stamped with that envelope; reassign signers -> envelope changes -> the
-     * prior signature no longer matches, so status is not FULLY_SIGNED.
-     */
+
     @Test
     void reassigningSignersInvalidatesPriorSignature() {
         // A simple in-memory store for signers and signatures so the real
@@ -182,6 +180,9 @@ class DocumentServiceSecurityTests {
         member(1L, TeamRole.TEAM_ADMIN); // uploader/admin
         member(2L, TeamRole.TEAM_SIGNER);
         member(3L, TeamRole.TEAM_SIGNER);
+
+        // The document must be registered on-chain before signatures are accepted.
+        document.setOnchainObjectId("0xproof");
 
         when(signerRepository.findByDocumentId(10L)).thenAnswer(inv -> new ArrayList<>(signers));
         doAnswer(inv -> { signers.clear(); return null; }).when(signerRepository).deleteByDocumentId(10L);
@@ -211,13 +212,12 @@ class DocumentServiceSecurityTests {
         assertNotNull(envelopeAfterFirstAssign);
 
         // Signer 2 signs; stamped with the current envelope.
-        service.sign(10L, 2L);
+        service.sign(10L, 2L, "0xtx", "0xaddr");
         assertEquals(1, signatures.size());
         assertEquals(envelopeAfterFirstAssign, signatures.get(0).getEnvelopeHash());
         assertEquals(DocumentStatus.PENDING_SIGNATURES, document.getStatus());
 
-        // Reassign to {2,4-> use 3 swapped}: change the set to {3, 2} is same set,
-        // so change to a genuinely different set {2} only, which changes policyHash.
+        // Reassign to a genuinely different set {2,4}, which changes policyHash.
         member(4L, TeamRole.TEAM_SIGNER);
         service.assignSigners(10L, List.of(2L, 4L), 1L);
         String envelopeAfterReassign = document.getEnvelopeHash();

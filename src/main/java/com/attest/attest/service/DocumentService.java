@@ -256,7 +256,7 @@ public class DocumentService {
     }
 
     @Transactional
-    public void sign(Long documentId, Long requesterId) {
+    public void sign(Long documentId, Long requesterId, String txDigest, String signerAddress) {
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
 
@@ -265,13 +265,20 @@ public class DocumentService {
         signerRepository.findByDocumentIdAndUserId(documentId, requesterId)
                 .orElseThrow(() -> new ForbiddenException("You are not an assigned signer for this document"));
 
-        if (signatureRepository.findByDocumentIdAndSignerId(documentId, requesterId).isEmpty()) {
+        if (doc.getOnchainObjectId() == null) {
+            throw new ForbiddenException("This document has not been registered on-chain yet");
+        }
+
+        var existing = signatureRepository.findByDocumentIdAndSignerId(documentId, requesterId);
+        if (existing.isEmpty()) {
             DocumentSignature sig = new DocumentSignature();
             sig.setDocumentId(documentId);
             sig.setSignerId(requesterId);
             sig.setEnvelopeHash(doc.getEnvelopeHash());
+            sig.setOnchainTxDigest(txDigest);
+            sig.setSignerAddress(signerAddress);
             signatureRepository.save(sig);
-            logAction(documentId, "SIGNED", requesterId, null);
+            logAction(documentId, "SIGNED", requesterId, "onchain tx " + txDigest);
         }
         recomputeStatus(doc);
     }

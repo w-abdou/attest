@@ -13,6 +13,8 @@ import RequireAuth from "@/components/RequireAuth";
 import PageHeader from "@/components/PageHeader";
 import SignatureProgress from "@/components/SignatureProgress";
 import OnChainRegisterButton from "@/components/sui/OnChainRegisterButton";
+import { useCurrentAccount } from "@mysten/dapp-kit-react";
+import { signDocumentOnChain } from "@/lib/onchainSign";
 import Card, { CardHeader, CardBody } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Alert from "@/components/ui/Alert";
@@ -36,6 +38,7 @@ function DocumentDetailContent() {
   const { user } = useAuth();
   const router = useRouter();
   const toast = useToast();
+  const account = useCurrentAccount();
 
   const [doc, setDoc] = useState<DocumentResponse | null>(null);
   const [versions, setVersions] = useState<DocumentResponse[]>([]);
@@ -159,14 +162,29 @@ function DocumentDetailContent() {
   }
 
   async function handleSign() {
+    if (!doc?.onchainObjectId) {
+      toast.error("This document has not been registered on-chain yet. Register it first.");
+      return;
+    }
+    if (!account) {
+      toast.error("Connect your Sui wallet to sign this document.");
+      return;
+    }
     setSigning(true);
     try {
-      await api.signDocument(documentId);
+      const { txDigest, signerAddress } = await signDocumentOnChain(doc.onchainObjectId, account.address);
+      await api.signDocument(documentId, txDigest, signerAddress);
       setConfirmSign(false);
-      toast.success("Your signature is recorded against this exact version.");
+      toast.success("Signed on-chain. Your signature is recorded against this exact version.");
       await loadAll();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not record your signature.");
+      toast.error(
+          err instanceof ApiError
+              ? err.message
+              : err instanceof Error
+                  ? err.message
+                  : "Could not record your signature.",
+      );
     } finally {
       setSigning(false);
     }
@@ -174,383 +192,383 @@ function DocumentDetailContent() {
 
   function toggleSigner(userId: number) {
     setSelectedSigners((prev) =>
-      prev.includes(userId) ? prev.filter((x) => x !== userId) : [...prev, userId],
+        prev.includes(userId) ? prev.filter((x) => x !== userId) : [...prev, userId],
     );
   }
 
   if (!validId) {
     return (
-      <div className="animate-fade-in">
-        <PageHeader title="Document unavailable" backHref="/documents" backLabel="All documents" />
-        <Alert tone="error">That document id is not valid.</Alert>
-      </div>
+        <div className="animate-fade-in">
+          <PageHeader title="Document unavailable" backHref="/documents" backLabel="All documents" />
+          <Alert tone="error">That document id is not valid.</Alert>
+        </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="skeleton h-8 w-64 rounded-lg" />
-        <Card><SkeletonRows rows={3} /></Card>
-        <Card><SkeletonRows rows={2} /></Card>
-      </div>
+        <div className="space-y-6">
+          <div className="skeleton h-8 w-64 rounded-lg" />
+          <Card><SkeletonRows rows={3} /></Card>
+          <Card><SkeletonRows rows={2} /></Card>
+        </div>
     );
   }
 
   if (loadError || !doc) {
     return (
-      <div className="animate-fade-in">
-        <PageHeader title="Document unavailable" backHref="/documents" backLabel="All documents" />
-        <Alert tone="error">{loadError ?? "Could not load this document."}</Alert>
-        <p className="mt-3 text-xs text-ink-500">
-          Attest answers &ldquo;not allowed&rdquo; and &ldquo;does not exist&rdquo; the same way
-          on purpose, so this message does not reveal whether the id is real.
-        </p>
-      </div>
+        <div className="animate-fade-in">
+          <PageHeader title="Document unavailable" backHref="/documents" backLabel="All documents" />
+          <Alert tone="error">{loadError ?? "Could not load this document."}</Alert>
+          <p className="mt-3 text-xs text-ink-500">
+            Attest answers &ldquo;not allowed&rdquo; and &ldquo;does not exist&rdquo; the same way
+            on purpose, so this message does not reveal whether the id is real.
+          </p>
+        </div>
     );
   }
 
   const isLatest = versions.length === 0 || doc.version === Math.max(...versions.map((v) => v.version));
 
   return (
-    <div className="animate-fade-in">
-      <PageHeader
-        title={doc.filename}
-        backHref={`/teams/${doc.teamId}`}
-        backLabel={teamName ? `Back to ${teamName}` : "Back to team"}
-        badge={<StatusBadge status={doc.status} />}
-        description={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="animate-fade-in">
+        <PageHeader
+            title={doc.filename}
+            backHref={`/teams/${doc.teamId}`}
+            backLabel={teamName ? `Back to ${teamName}` : "Back to team"}
+            badge={<StatusBadge status={doc.status} />}
+            description={
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>Version {doc.version}</span>
             <span aria-hidden="true">·</span>
             <span>Uploaded {timeAgo(doc.createdAt)}</span>
             <span aria-hidden="true">·</span>
             <span>Document id {doc.id}</span>
-            {!isLatest && (
-              <Badge tone="amber">Superseded by a newer version</Badge>
-            )}
+                {!isLatest && (
+                    <Badge tone="amber">Superseded by a newer version</Badge>
+                )}
           </span>
-        }
-      />
+            }
+        />
 
-      <div className="mb-6">
-        <HashDisplay hash={doc.documentHash} full />
-      </div>
+        <div className="mb-6">
+          <HashDisplay hash={doc.documentHash} full />
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          {/* Verify */}
-          <Card>
-            <CardHeader
-              icon={<ShieldIcon />}
-              title="Verify integrity"
-              description="Re-upload a copy of this file. Attest hashes it and compares against the digest stored for this version."
-            />
-            <CardBody className="space-y-3">
-              <form onSubmit={handleVerify} className="space-y-3">
-                <FileDrop
-                  file={verifyFile}
-                  onFile={pickVerifyFile}
-                  disabled={verifying}
-                  label="Drop the copy you want to check"
-                  hint="Nothing is stored — the file is hashed and discarded"
-                />
-                <Button type="submit" loading={verifying} disabled={!verifyFile} icon={<ShieldIcon />}>
-                  {verifying ? "Checking…" : "Verify this file"}
-                </Button>
-              </form>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            {/* Verify */}
+            <Card>
+              <CardHeader
+                  icon={<ShieldIcon />}
+                  title="Verify integrity"
+                  description="Re-upload a copy of this file. Attest hashes it and compares against the digest stored for this version."
+              />
+              <CardBody className="space-y-3">
+                <form onSubmit={handleVerify} className="space-y-3">
+                  <FileDrop
+                      file={verifyFile}
+                      onFile={pickVerifyFile}
+                      disabled={verifying}
+                      label="Drop the copy you want to check"
+                      hint="Nothing is stored — the file is hashed and discarded"
+                  />
+                  <Button type="submit" loading={verifying} disabled={!verifyFile} icon={<ShieldIcon />}>
+                    {verifying ? "Checking…" : "Verify this file"}
+                  </Button>
+                </form>
 
-              {verifyResult && (
-                <div
-                  role="status"
-                  className={`flex items-start gap-3 rounded-xl border p-4 ${
-                    verifyResult.verified
-                      ? "border-emerald-200 bg-emerald-50"
-                      : "border-red-200 bg-red-50"
-                  }`}
-                >
+                {verifyResult && (
+                    <div
+                        role="status"
+                        className={`flex items-start gap-3 rounded-xl border p-4 ${
+                            verifyResult.verified
+                                ? "border-emerald-200 bg-emerald-50"
+                                : "border-red-200 bg-red-50"
+                        }`}
+                    >
                   <span
-                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg ${
-                      verifyResult.verified ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                    }`}
+                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg ${
+                          verifyResult.verified ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                      }`}
                   >
                     {verifyResult.verified ? <CheckCircleIcon /> : <AlertIcon />}
                   </span>
-                  <div className="min-w-0">
-                    <p
-                      className={`text-sm font-semibold ${
-                        verifyResult.verified ? "text-emerald-800" : "text-red-800"
-                      }`}
-                    >
-                      {verifyResult.verified ? "Hash verified" : "Integrity verification failed"}
-                    </p>
-                    <p
-                      className={`mt-0.5 text-xs leading-relaxed ${
-                        verifyResult.verified ? "text-emerald-700" : "text-red-700"
-                      }`}
-                    >
-                      {verifyResult.result}
-                    </p>
-                    {!verifyResult.verified && (
-                      <p className="mt-1.5 text-xs leading-relaxed text-red-700">
-                        The file you uploaded is not byte-for-byte identical to version{" "}
-                        {doc.version}. Even a one-byte edit produces a different digest.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* Signers */}
-          <Card>
-            <CardHeader
-              icon={<PenIcon />}
-              title="Required signers"
-              description="Signatures are bound to this version alone and never carry into an amendment."
-            />
-            <CardBody className="space-y-4">
-              <SignatureProgress signed={signedCount} total={signers.length} />
-              <div className="mt-4 border-t border-ink-100 pt-4">
-                <OnChainRegisterButton doc={doc} signers={signers} onRegistered={loadAll} />
-              </div>
-              {signers.length === 0 ? (
-                <EmptyState
-                  icon={<UsersIcon />}
-                  title="No required signers yet"
-                  description={
-                    canManageSigners
-                      ? "Choose who must sign this version below."
-                      : "The uploader or a team admin needs to name the required signers."
-                  }
-                />
-              ) : (
-                <ul className="divide-y divide-ink-200 rounded-lg border border-ink-200">
-                  {signers.map((signer) => (
-                    <li key={signer.signerId} className="flex items-center gap-3 px-3.5 py-2.5">
-                      <Avatar identity={displayIdentity(signer.email, signer.suiAddress)} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-ink-900">
-                          {displayIdentity(signer.email, signer.suiAddress)}
-                          {signer.signerId === user?.id && (
-                            <span className="ml-1.5 text-xs text-ink-400">(you)</span>
-                          )}
+                      <div className="min-w-0">
+                        <p
+                            className={`text-sm font-semibold ${
+                                verifyResult.verified ? "text-emerald-800" : "text-red-800"
+                            }`}
+                        >
+                          {verifyResult.verified ? "Hash verified" : "Integrity verification failed"}
                         </p>
-                        {signer.signed && signer.signedAt && (
-                          <p className="text-xs text-ink-500">{formatDateTime(signer.signedAt)}</p>
+                        <p
+                            className={`mt-0.5 text-xs leading-relaxed ${
+                                verifyResult.verified ? "text-emerald-700" : "text-red-700"
+                            }`}
+                        >
+                          {verifyResult.result}
+                        </p>
+                        {!verifyResult.verified && (
+                            <p className="mt-1.5 text-xs leading-relaxed text-red-700">
+                              The file you uploaded is not byte-for-byte identical to version{" "}
+                              {doc.version}. Even a one-byte edit produces a different digest.
+                            </p>
                         )}
                       </div>
-                      {signer.signed ? (
-                        <Badge tone="green"><CheckCircleIcon className="text-xs" /> Signed</Badge>
-                      ) : (
-                        <Badge tone="neutral">Pending</Badge>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
+                    </div>
+                )}
+              </CardBody>
+            </Card>
 
-              {myAssignment && !myAssignment.signed && (
-                <div className="rounded-xl border border-sui-200 bg-sui-50 p-4">
-                  <p className="text-sm font-medium text-sui-900">Your signature is required</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-sui-800">
-                    You are signing version {doc.version}, digest {shortHash(doc.documentHash, 8)}.
-                    If this document is amended later, this signature will not carry forward.
-                  </p>
-                  <Button
-                    variant="success" size="sm" className="mt-3"
-                    icon={<PenIcon />} onClick={() => setConfirmSign(true)}
-                  >
-                    Sign this version
-                  </Button>
+            {/* Signers */}
+            <Card>
+              <CardHeader
+                  icon={<PenIcon />}
+                  title="Required signers"
+                  description="Signatures are bound to this version alone and never carry into an amendment."
+              />
+              <CardBody className="space-y-4">
+                <SignatureProgress signed={signedCount} total={signers.length} />
+                <div className="mt-4 border-t border-ink-100 pt-4">
+                  <OnChainRegisterButton doc={doc} signers={signers} onRegistered={loadAll} />
                 </div>
-              )}
+                {signers.length === 0 ? (
+                    <EmptyState
+                        icon={<UsersIcon />}
+                        title="No required signers yet"
+                        description={
+                          canManageSigners
+                              ? "Choose who must sign this version below."
+                              : "The uploader or a team admin needs to name the required signers."
+                        }
+                    />
+                ) : (
+                    <ul className="divide-y divide-ink-200 rounded-lg border border-ink-200">
+                      {signers.map((signer) => (
+                          <li key={signer.signerId} className="flex items-center gap-3 px-3.5 py-2.5">
+                            <Avatar identity={displayIdentity(signer.email, signer.suiAddress)} size="sm" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm text-ink-900">
+                                {displayIdentity(signer.email, signer.suiAddress)}
+                                {signer.signerId === user?.id && (
+                                    <span className="ml-1.5 text-xs text-ink-400">(you)</span>
+                                )}
+                              </p>
+                              {signer.signed && signer.signedAt && (
+                                  <p className="text-xs text-ink-500">{formatDateTime(signer.signedAt)}</p>
+                              )}
+                            </div>
+                            {signer.signed ? (
+                                <Badge tone="green"><CheckCircleIcon className="text-xs" /> Signed</Badge>
+                            ) : (
+                                <Badge tone="neutral">Pending</Badge>
+                            )}
+                          </li>
+                      ))}
+                    </ul>
+                )}
 
-              {myAssignment?.signed && (
-                <Alert tone="success" title="You have signed this version">
-                  Recorded {myAssignment.signedAt ? formatDateTime(myAssignment.signedAt) : ""}.
-                </Alert>
-              )}
+                {myAssignment && !myAssignment.signed && (
+                    <div className="rounded-xl border border-sui-200 bg-sui-50 p-4">
+                      <p className="text-sm font-medium text-sui-900">Your signature is required</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-sui-800">
+                        You are signing version {doc.version}, digest {shortHash(doc.documentHash, 8)}.
+                        If this document is amended later, this signature will not carry forward.
+                      </p>
+                      <Button
+                          variant="success" size="sm" className="mt-3"
+                          icon={<PenIcon />} onClick={() => setConfirmSign(true)}
+                      >
+                        Sign this version
+                      </Button>
+                    </div>
+                )}
 
-              {canManageSigners && teamMembers.length > 0 && (
-                <form onSubmit={handleSaveSigners} className="space-y-3 border-t border-ink-200 pt-4">
-                  <div>
-                    <p className="text-sm font-medium text-ink-800">
-                      Who must sign this version?
-                    </p>
-                    <p className="mt-0.5 text-xs text-ink-500">
-                      You can edit this because you are {isUploader ? "the uploader" : "a team admin"}.
-                      Removing someone also clears any signature they had already given.
-                    </p>
-                  </div>
-                  <div className="grid gap-1.5 sm:grid-cols-2">
-                    {teamMembers.map((member) => {
-                      const checked = selectedSigners.includes(member.userId);
-                      return (
-                        <label
-                          key={member.userId}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                            checked
-                              ? "border-sui-300 bg-sui-50"
-                              : "border-ink-200 bg-white hover:border-ink-300 hover:bg-ink-50"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSigner(member.userId)}
-                            className="h-4 w-4 shrink-0 accent-sui-600"
-                          />
-                          <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
-                          <span className="min-w-0 flex-1 truncate text-xs text-ink-800">
+                {myAssignment?.signed && (
+                    <Alert tone="success" title="You have signed this version">
+                      Recorded {myAssignment.signedAt ? formatDateTime(myAssignment.signedAt) : ""}.
+                    </Alert>
+                )}
+
+                {canManageSigners && teamMembers.length > 0 && (
+                    <form onSubmit={handleSaveSigners} className="space-y-3 border-t border-ink-200 pt-4">
+                      <div>
+                        <p className="text-sm font-medium text-ink-800">
+                          Who must sign this version?
+                        </p>
+                        <p className="mt-0.5 text-xs text-ink-500">
+                          You can edit this because you are {isUploader ? "the uploader" : "a team admin"}.
+                          Removing someone also clears any signature they had already given.
+                        </p>
+                      </div>
+                      <div className="grid gap-1.5 sm:grid-cols-2">
+                        {teamMembers.map((member) => {
+                          const checked = selectedSigners.includes(member.userId);
+                          return (
+                              <label
+                                  key={member.userId}
+                                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                                      checked
+                                          ? "border-sui-300 bg-sui-50"
+                                          : "border-ink-200 bg-white hover:border-ink-300 hover:bg-ink-50"
+                                  }`}
+                              >
+                                <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleSigner(member.userId)}
+                                    className="h-4 w-4 shrink-0 accent-sui-600"
+                                />
+                                <Avatar identity={displayIdentity(member.email, member.suiAddress)} size="sm" />
+                                <span className="min-w-0 flex-1 truncate text-xs text-ink-800">
                             {displayIdentity(member.email, member.suiAddress)}
                           </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Button type="submit" size="sm" loading={savingSigners}>
-                      Save signer set
-                    </Button>
-                    <span className="text-xs text-ink-500">
+                              </label>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Button type="submit" size="sm" loading={savingSigners}>
+                          Save signer set
+                        </Button>
+                        <span className="text-xs text-ink-500">
                       {selectedSigners.length} selected
                     </span>
-                  </div>
-                </form>
-              )}
-            </CardBody>
-          </Card>
+                      </div>
+                    </form>
+                )}
+              </CardBody>
+            </Card>
 
-          {/* Audit */}
-          <Card>
-            <CardHeader
-              icon={<HistoryIcon />}
-              title="Audit trail"
-              description="Written by the server. Clients cannot add, edit or delete these entries."
-            />
-            {audit.length === 0 ? (
-              <EmptyState icon={<HistoryIcon />} title="No audit entries yet" />
-            ) : (
-              <ol className="divide-y divide-ink-200">
-                {[...audit]
-                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                  .map((entry) => (
-                    <li key={entry.id} className="flex gap-3 px-5 py-3">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sui-400" aria-hidden="true" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-ink-900">
-                          <span className="font-medium">{entry.action}</span>
-                          <span className="ml-2 text-xs text-ink-400">
+            {/* Audit */}
+            <Card>
+              <CardHeader
+                  icon={<HistoryIcon />}
+                  title="Audit trail"
+                  description="Written by the server. Clients cannot add, edit or delete these entries."
+              />
+              {audit.length === 0 ? (
+                  <EmptyState icon={<HistoryIcon />} title="No audit entries yet" />
+              ) : (
+                  <ol className="divide-y divide-ink-200">
+                    {[...audit]
+                        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                        .map((entry) => (
+                            <li key={entry.id} className="flex gap-3 px-5 py-3">
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sui-400" aria-hidden="true" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-ink-900">
+                                  <span className="font-medium">{entry.action}</span>
+                                  <span className="ml-2 text-xs text-ink-400">
                             by user {entry.performedBy}
                           </span>
-                        </p>
-                        {entry.detail && (
-                          <p className="mt-0.5 break-words text-xs leading-relaxed text-ink-500">
-                            {entry.detail}
-                          </p>
-                        )}
-                        <p className="mt-0.5 text-xs text-ink-400" title={formatDateTime(entry.timestamp)}>
-                          {timeAgo(entry.timestamp)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-              </ol>
-            )}
-          </Card>
-        </div>
+                                </p>
+                                {entry.detail && (
+                                    <p className="mt-0.5 break-words text-xs leading-relaxed text-ink-500">
+                                      {entry.detail}
+                                    </p>
+                                )}
+                                <p className="mt-0.5 text-xs text-ink-400" title={formatDateTime(entry.timestamp)}>
+                                  {timeAgo(entry.timestamp)}
+                                </p>
+                              </div>
+                            </li>
+                        ))}
+                  </ol>
+              )}
+            </Card>
+          </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          <Card className="h-fit">
-            <CardHeader
-              icon={<LayersIcon />}
-              title="Version history"
-              description="Each version is its own immutable record."
-            />
-            <ol className="divide-y divide-ink-200">
-              {[...versions]
-                .sort((a, b) => b.version - a.version)
-                .map((version) => {
-                  const current = version.id === doc.id;
-                  return (
-                    <li key={version.id}>
-                      <Link
-                        href={`/documents/${version.id}`}
-                        aria-current={current ? "page" : undefined}
-                        className={`block px-5 py-3 transition-colors ${
-                          current ? "bg-sui-50" : "hover:bg-ink-50"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
+          {/* Sidebar */}
+          <div className="space-y-6">
+            <Card className="h-fit">
+              <CardHeader
+                  icon={<LayersIcon />}
+                  title="Version history"
+                  description="Each version is its own immutable record."
+              />
+              <ol className="divide-y divide-ink-200">
+                {[...versions]
+                    .sort((a, b) => b.version - a.version)
+                    .map((version) => {
+                      const current = version.id === doc.id;
+                      return (
+                          <li key={version.id}>
+                            <Link
+                                href={`/documents/${version.id}`}
+                                aria-current={current ? "page" : undefined}
+                                className={`block px-5 py-3 transition-colors ${
+                                    current ? "bg-sui-50" : "hover:bg-ink-50"
+                                }`}
+                            >
+                              <div className="flex items-center gap-2">
                           <span
-                            className={`text-sm font-medium ${current ? "text-sui-800" : "text-ink-800"}`}
+                              className={`text-sm font-medium ${current ? "text-sui-800" : "text-ink-800"}`}
                           >
                             Version {version.version}
                           </span>
-                          {current && <Badge tone="blue">Viewing</Badge>}
-                        </div>
-                        <p className="mt-0.5 truncate text-xs text-ink-500">{version.filename}</p>
-                        <code className="mt-1 block font-mono text-[11px] text-ink-400">
-                          {shortHash(version.documentHash, 8)}
-                        </code>
-                      </Link>
-                    </li>
-                  );
-                })}
-            </ol>
-          </Card>
+                                {current && <Badge tone="blue">Viewing</Badge>}
+                              </div>
+                              <p className="mt-0.5 truncate text-xs text-ink-500">{version.filename}</p>
+                              <code className="mt-1 block font-mono text-[11px] text-ink-400">
+                                {shortHash(version.documentHash, 8)}
+                              </code>
+                            </Link>
+                          </li>
+                      );
+                    })}
+              </ol>
+            </Card>
 
-          <Card className="h-fit">
-            <CardHeader
-              icon={<UploadIcon />}
-              title="Amend"
-              description="Uploads a replacement as a new version. The current version stays untouched."
-            />
-            <CardBody>
-              <form onSubmit={handleAmend} className="space-y-3">
-                <FileDrop
-                  file={amendFile}
-                  onFile={setAmendFile}
-                  disabled={amending}
-                  label="Drop the revised PDF"
-                />
-                <Alert tone="info">
-                  The new version gets its own hash and starts with a clean slate: signers carry
-                  over, but every signature resets to unsigned.
-                </Alert>
-                <Button
-                  type="submit" fullWidth variant="secondary"
-                  loading={amending} disabled={!amendFile}
-                >
-                  {amending ? "Creating version…" : `Create version ${doc.version + 1}`}
-                </Button>
-              </form>
-            </CardBody>
-          </Card>
+            <Card className="h-fit">
+              <CardHeader
+                  icon={<UploadIcon />}
+                  title="Amend"
+                  description="Uploads a replacement as a new version. The current version stays untouched."
+              />
+              <CardBody>
+                <form onSubmit={handleAmend} className="space-y-3">
+                  <FileDrop
+                      file={amendFile}
+                      onFile={setAmendFile}
+                      disabled={amending}
+                      label="Drop the revised PDF"
+                  />
+                  <Alert tone="info">
+                    The new version gets its own hash and starts with a clean slate: signers carry
+                    over, but every signature resets to unsigned.
+                  </Alert>
+                  <Button
+                      type="submit" fullWidth variant="secondary"
+                      loading={amending} disabled={!amendFile}
+                  >
+                    {amending ? "Creating version…" : `Create version ${doc.version + 1}`}
+                  </Button>
+                </form>
+              </CardBody>
+            </Card>
+          </div>
         </div>
-      </div>
 
-      <ConfirmDialog
-        open={confirmSign}
-        tone="primary"
-        title={`Sign version ${doc.version}?`}
-        description={`Your signature is bound to digest ${shortHash(doc.documentHash, 8)}. It applies to this version only and cannot be undone from here.`}
-        confirmLabel="Sign document"
-        busy={signing}
-        onConfirm={handleSign}
-        onCancel={() => setConfirmSign(false)}
-      />
-    </div>
+        <ConfirmDialog
+            open={confirmSign}
+            tone="primary"
+            title={`Sign version ${doc.version}?`}
+            description={`Your signature is bound to digest ${shortHash(doc.documentHash, 8)}. It applies to this version only and cannot be undone from here.`}
+            confirmLabel="Sign document"
+            busy={signing}
+            onConfirm={handleSign}
+            onCancel={() => setConfirmSign(false)}
+        />
+      </div>
   );
 }
 
 export default function DocumentDetailPage() {
   return (
-    <RequireAuth>
-      <DocumentDetailContent />
-    </RequireAuth>
+      <RequireAuth>
+        <DocumentDetailContent />
+      </RequireAuth>
   );
 }

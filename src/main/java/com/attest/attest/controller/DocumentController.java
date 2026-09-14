@@ -105,9 +105,9 @@ public class DocumentController {
     }
 
     @PostMapping("/{id}/sign")
-    public ResponseEntity<Void> sign(@PathVariable Long id, HttpServletRequest http) {
+    public ResponseEntity<Void> sign(@PathVariable Long id, @Valid @RequestBody OnchainSignRequest req, HttpServletRequest http) {
         Long requesterId = (Long) http.getAttribute("authenticatedUserId");
-        documentService.sign(id, requesterId);
+        documentService.sign(id, requesterId, req.txDigest(), req.signerAddress());
         return ResponseEntity.noContent().build();
     }
 

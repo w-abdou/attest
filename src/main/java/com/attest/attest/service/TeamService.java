@@ -22,11 +22,18 @@ public class TeamService {
     private final TeamRepository teamRepository;
     private final TeamMembershipRepository membershipRepository;
     private final UserRepository userRepository;
+    private final UsernameService usernameService;
 
-    public TeamService(TeamRepository teamRepository, TeamMembershipRepository membershipRepository, UserRepository userRepository) {
+    public TeamService(
+            TeamRepository teamRepository,
+            TeamMembershipRepository membershipRepository,
+            UserRepository userRepository,
+            UsernameService usernameService
+    ) {
         this.teamRepository = teamRepository;
         this.membershipRepository = membershipRepository;
         this.userRepository = userRepository;
+        this.usernameService = usernameService;
     }
 
     private static final Pattern SUI_ADDRESS_PATTERN = Pattern.compile("^0x[a-fA-F0-9]{64}$");
@@ -41,14 +48,20 @@ public class TeamService {
 
     /**
      * Accounts are wallet-native and may have no email at all, so "add a member"
-     * has to accept a Sui address too. The identifier's shape decides which
-     * lookup runs — no separate "type" field for the caller to get wrong.
+     * accepts a username or a Sui address too — the identifier's shape decides
+     * which lookup runs, no separate "type" field for the caller to get wrong.
+     * A Sui address is unmistakable (0x + 64 hex); an email always contains "@",
+     * which a username can never contain (usernames are [a-z0-9_] only) — so
+     * the two can never be confused with each other.
      */
     private Optional<User> resolveUser(String identifier) {
         if (SUI_ADDRESS_PATTERN.matcher(identifier).matches()) {
             return userRepository.findBySuiAddress(identifier);
         }
-        return userRepository.findByEmail(identifier);
+        if (identifier.contains("@")) {
+            return userRepository.findByEmail(identifier);
+        }
+        return userRepository.findByUsername(usernameService.normalize(identifier));
     }
 
     public Team createTeam(String name, Long creatorId) {
@@ -105,7 +118,7 @@ public class TeamService {
         TeamRole role = parseRole(roleRaw);
 
         User user = resolveUser(identifier)
-                .orElseThrow(() -> new TeamMembershipException("No registered user with that email or Sui address"));
+                .orElseThrow(() -> new TeamMembershipException("No registered user with that username, email, or Sui address"));
 
         if (membershipRepository.findByTeamIdAndUserId(teamId, user.getId()).isPresent()) {
             throw new TeamMembershipException("That user is already a member of this team");

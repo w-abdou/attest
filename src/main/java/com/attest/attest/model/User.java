@@ -38,6 +38,17 @@ public class User {
     @Column(nullable = true, unique = true)
     private String suiAddress;
 
+    // Chosen during forced onboarding, right after a brand-new account's first
+    // wallet login — a fresh row always starts with username = null. "Required"
+    // is therefore enforced by the onboarding gate and by every endpoint that
+    // needs one (e.g. adding a team member), not by a NOT NULL column, since an
+    // account has to exist for a moment before it can choose one. Always stored
+    // lowercased; UsernameService is the only writer and normalizes on the way
+    // in, so this column can be compared/joined directly without a
+    // LOWER(username) everywhere.
+    @Column(nullable = true, unique = true, length = 30)
+    private String username;
+
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 }

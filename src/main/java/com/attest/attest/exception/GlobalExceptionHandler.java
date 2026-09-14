@@ -132,6 +132,22 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(InvalidUsernameException.class)
+    public ResponseEntity<?> handleInvalidUsername(InvalidUsernameException ex) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(UsernameTakenException.class)
+    public ResponseEntity<?> handleUsernameTaken(UsernameTakenException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "error", ex.getMessage()
+        ));
+    }
+
     @ExceptionHandler(UnsupportedSignatureSchemeException.class)
     public ResponseEntity<?> handleUnsupportedSignatureScheme(UnsupportedSignatureSchemeException ex) {
         return ResponseEntity.badRequest().body(Map.of(

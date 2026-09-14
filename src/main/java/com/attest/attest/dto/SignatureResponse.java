@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record SignatureResponse(
         Long signerId,
+        String username,
         String email,
         String suiAddress,
         boolean signed,

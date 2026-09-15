@@ -426,6 +426,79 @@ request for the specific requester and the specific document.
   checked against the real service end-to-end, not assumed from the Move
   unit tests alone.
 
+## Sponsored transactions (deferred milestone 2.2 item)
+
+`register_document` and `sign` are now gas-sponsored by Enoki — the
+connected wallet (Slush, or Google via zkLogin — the same code path handles
+both) only ever signs; it never needs to hold any testnet SUI at all.
+
+### The flow
+
+1. The browser builds the Move call as a transaction-kind-only payload
+   (`tx.build({ onlyTransactionKind: true })` — no sender, no gas attached)
+   and POSTs it, base64-encoded, to this app's own `/api/sponsor-transaction`
+   route along with the sender's address and a named action (`"register-
+   document"` or `"sign"` — never a raw target string).
+2. That route (a Next.js server route, Node-only, never shipped to the
+   browser) resolves the action to the real Move target itself and calls
+   `EnokiClient.createSponsoredTransaction({ network, transactionKindBytes,
+   sender, allowedMoveCallTargets: [target] })` using `ENOKI_SECRET_KEY` — the
+   one place that secret is ever read. Enoki returns full transaction bytes
+   with its own sponsor account already attached as the gas payer, plus a
+   digest.
+3. The browser has the connected wallet sign those bytes
+   (`dAppKit.signTransaction`) — sign only, nothing executes yet — and POSTs
+   `{ digest, signature }` to `/api/execute-sponsored-transaction`, which
+   calls `EnokiClient.executeSponsoredTransaction` to actually submit it.
+4. The browser then fetches the transaction's effects itself
+   (`suiClient.core.waitForTransaction`) to learn whether the Move call
+   succeeded and (for `register_document`) which object got created — Enoki's
+   execute call only returns a digest, not effects.
+
+### Why the client names an action, not a target
+
+`createSponsoredTransaction`'s `allowedMoveCallTargets` is Enoki's own
+per-request safety net, but if the browser could supply that list itself, a
+compromised or malicious client could ask this app's Enoki sponsor pool to
+pay gas for an arbitrary call. The `/api/sponsor-transaction` route hard-codes
+the mapping from `{"register-document", "sign"}` to the real
+`ATTEST_PACKAGE_ID::attest_docs::{register_document,sign}` targets — the
+client only ever gets to pick from those two names.
+
+### Two Enoki API keys, two different trust levels
+
+- `NEXT_PUBLIC_ENOKI_API_KEY` (`enoki_public_...`) — already existed, for
+  zkLogin. Safe in the browser by design.
+- `ENOKI_SECRET_KEY` (`enoki_private_...`, new) — authorizes spending this
+  app's Enoki sponsor gas pool. Server-side only; never prefixed
+  `NEXT_PUBLIC_`, never committed. Read only inside the two new API routes.
+
+### Manual setup required (cannot be done from this session)
+
+1. In the [Enoki Portal](https://portal.enoki.mystenlabs.com), the same app
+   project already used for zkLogin: open **Sponsored Transactions**, enable
+   it for the testnet environment, and add
+   `<ATTEST_PACKAGE_ID>::attest_docs::register_document` and
+   `<ATTEST_PACKAGE_ID>::attest_docs::sign` (see `frontend/src/lib/attestContract.ts`
+   for the current `ATTEST_PACKAGE_ID`) to the allowed move-call targets.
+   Redeploying the Move package again changes this package id — the Portal
+   allowlist needs updating to match, same as `attestContract.ts` does.
+2. Fund the Enoki app's own sponsor account with testnet SUI (via the Portal)
+   — Enoki pays gas out of that pool, not out of anyone's personal wallet.
+3. Get the app's private API key from the Portal and set `ENOKI_SECRET_KEY`
+   in `frontend/.env.local` (left blank in this repo's `.env.local`).
+
+Without all three, sponsorship isn't available and register/sign silently
+fall back to the connected wallet paying its own gas (the pre-Enoki
+behavior) — `/api/sponsor-transaction` returns 501 when `ENOKI_SECRET_KEY`
+isn't set, and `lib/sponsoredTransaction.ts` catches exactly that case to
+fall back, so nothing breaks during setup. Once `ENOKI_SECRET_KEY` is set but
+the Portal allowlist isn't (or is stale, e.g. after a package redeploy),
+sponsorship attempts fail loudly instead (Enoki's own rejection, surfaced as
+a 502) rather than silently falling back — that distinction is deliberate:
+"not configured at all" degrades gracefully, "configured wrong" should be
+visible and fixed, not silently paid for by the user's own wallet.
+
 ## Test evidence
 
 Run `./mvnw test`. The current suite covers context startup, ownership/role controls, upload and integrity checks, JWT tamper rejection, the wallet challenge/verify HTTP flow (issuance, a genuine Ed25519 signature accepted, nonce replay rejected, address mismatch rejected, unknown nonce rejected), the Ed25519 verification core cross-checked against `@mysten/sui`'s own SDK output, username format/uniqueness/self-reassignment rules, the sixth-request rate-limit boundary, and the Walrus-backed upload/amend/verify-hash paths (metadata recorded with no storage-service call made, hash-format/content-type rejection, viewer-cannot-upload, signer carryover on amend). A live upload → download round-trip against real Walrus testnet infrastructure (via the public upload relay and aggregator) was run manually and confirmed byte-for-byte and hash-identical — this is not part of `./mvnw test`/`npm run build` and does not re-run automatically.
@@ -433,5 +506,7 @@ Run `./mvnw test`. The current suite covers context startup, ownership/role cont
 Run `sui move test` in `move/attest_docs`. The current suite (11 tests) covers registration, signing, and policy-change acceptance as before, plus `seal_approve`'s authorization boundary specifically: admin can decrypt with no signers assigned, a required signer can decrypt, an outsider is rejected, a signer removed by a policy change loses access, a mismatched id is rejected, and a revoked document cannot be decrypted even by its admin. After the redeploy that added `document_id`/`seal_approve`, `register_document` and `sign` were both re-run as real (committed) transactions against the new package id on testnet and succeeded, and `seal_approve` was independently dry-run (simulated, never committed) as the document's admin address and confirmed to succeed — all outside `sui move test` and not re-run automatically.
 
 Separately, and specifically for the Seal client integration, a live end-to-end run against real Seal testnet key servers (not a simulation, not the Move unit tests) encrypted real data, registered a real on-chain policy object, and requested the decryption key back as two different addresses — the authorized admin (succeeded, correct plaintext) and an unrelated unauthorized address (failed with `NoAccessError`). This is also outside `sui move test`/`./mvnw test`/`npm run build` and does not re-run automatically.
+
+Sponsored transactions could not be exercised live in this session — that requires a real `ENOKI_SECRET_KEY` and the Portal allowlist setup described above, both of which only the project owner can provision. What was verified instead: `npx tsc --noEmit`, `npx eslint`, and `npm run build` all pass with the new routes and call sites in place (including the two new `/api/*` routes appearing in the build's route list), and the fallback path (`ENOKI_SECRET_KEY` unset) was traced through the code — `/api/sponsor-transaction` returns 501, and `lib/sponsoredTransaction.ts` catches exactly that to fall back to the wallet paying its own gas, the same call shape register/sign already used before this change. A live sponsored round-trip (register or sign, actually gas-free) remains a deployment check once the developer completes the Portal setup.
 
 A live PostgreSQL run, a live zkLogin verification against Sui's gRPC-backed verify endpoint (via the Next.js proxy, not the retired public GraphQL endpoint), and a client-level acceptance test remain deployment checks.

@@ -63,7 +63,7 @@ export default function OnChainRegisterButton({ doc, signers, onRegistered }: Pr
       // into the ciphertext. A non-Seal document has none yet; a fresh one
       // generated here is fine, since nothing ever reads it back for those.
       const documentIdHex = doc.sealIdHex ?? generateSealIdHex();
-      const result = await registerDocumentOnChain(documentIdHex, doc.envelopeHash as string, addresses);
+      const result = await registerDocumentOnChain(documentIdHex, doc.envelopeHash as string, addresses, account.address);
       await api.recordOnchainRegistration(
         doc.id, result.objectId, result.txDigest, result.packageId, result.network,
       );

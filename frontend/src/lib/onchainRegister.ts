@@ -1,7 +1,7 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { fromHex } from "@mysten/sui/utils";
-import { dAppKit } from "@/lib/dappKit";
 import { TARGET, ATTEST_PACKAGE_ID, ATTEST_NETWORK } from "@/lib/attestContract";
+import { signAndExecuteSponsored } from "@/lib/sponsoredTransaction";
 
 export interface RegisterResult {
     objectId: string;
@@ -15,11 +15,16 @@ export interface RegisterResult {
  * non-Seal document, arbitrarily) already assigned — see lib/sealId.ts. It
  * has to be provided, not derived here, since for a Seal-encrypted document
  * it was already baked into the ciphertext before this ever runs.
+ *
+ * senderAddress: the connected wallet's address — gas-sponsored by Enoki, so
+ * it only ever signs (see lib/sponsoredTransaction.ts); this account still
+ * becomes the DocumentProof's admin on-chain, exactly as before.
  */
 export async function registerDocumentOnChain(
     documentIdHex: string,
     envelopeHashHex: string,
     signerAddresses: string[],
+    senderAddress: string,
 ): Promise<RegisterResult> {
     // The Move function wants vector<u8>. Convert the hex envelope hash to bytes.
     const hex = envelopeHashHex.startsWith("0x") ? envelopeHashHex.slice(2) : envelopeHashHex;
@@ -36,26 +41,14 @@ export async function registerDocumentOnChain(
         ],
     });
 
-    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
-
-    // @mysten/dapp-kit-react's signAndExecuteTransaction always requests
-    // { effects: true, transaction: true, bcs: true } — it does not expose an
-    // objectTypes include, so we cannot match the created object by Move type
-    // string here. Instead: the transaction either failed outright ($kind is
-    // "FailedTransaction"), aborted on-chain (executed but status.success is
-    // false — e.g. a Move assertion in register_document), or succeeded, in
-    // which case register_document creates exactly one shared object, so the
-    // single "Created" entry in changedObjects is the DocumentProof.
-    if (result.$kind !== "Transaction") {
-        throw new Error("The transaction could not be executed on-chain.");
-    }
-
-    const { digest: txDigest, effects } = result.Transaction;
+    const { digest: txDigest, effects } = await signAndExecuteSponsored(tx, "register-document", senderAddress);
 
     if (!effects.status.success) {
         throw new Error(`On-chain registration was rejected: ${effects.status.error ?? "unknown Move abort"}`);
     }
 
+    // register_document creates exactly one shared object (the
+    // DocumentProof), so the single "Created" entry in changedObjects is it.
     const created = effects.changedObjects.filter((o) => o.idOperation === "Created");
     if (created.length === 0) {
         throw new Error("Registered on-chain, but no created object was found in the transaction effects.");

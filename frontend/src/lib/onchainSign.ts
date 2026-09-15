@@ -1,6 +1,6 @@
 import { Transaction } from "@mysten/sui/transactions";
-import { dAppKit } from "@/lib/dappKit";
 import { TARGET } from "@/lib/attestContract";
+import { signAndExecuteSponsored } from "@/lib/sponsoredTransaction";
 
 export interface SignResult {
     txDigest: string;
@@ -8,7 +8,9 @@ export interface SignResult {
 }
 
 /**
- * Builds and executes sign(proof) on Sui, signed by the connected wallet.
+ * Builds and executes sign(proof) on Sui, signed by the connected wallet and
+ * gas-sponsored by Enoki (see lib/sponsoredTransaction.ts) — the signer never
+ * pays gas, only signs.
  * onchainObjectId: the document's DocumentProof shared-object id (from registration).
  * signerAddress: the connected wallet's address (recorded as the on-chain signer).
  */
@@ -22,12 +24,8 @@ export async function signDocumentOnChain(
         arguments: [tx.object(onchainObjectId)],
     });
 
-    const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
+    const { digest: txDigest, effects } = await signAndExecuteSponsored(tx, "sign", signerAddress);
 
-    if (result.$kind !== "Transaction") {
-        throw new Error("The signing transaction could not be executed on-chain.");
-    }
-    const { digest: txDigest, effects } = result.Transaction;
     if (!effects.status.success) {
         throw new Error(`On-chain signing was rejected: ${effects.status.error ?? "unknown Move abort"}`);
     }
